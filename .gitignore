@@ -1,0 +1,5 @@
+Plymouth_Editor/export/
+*.blend[0-9]*
+__pycache__/
+.vs/
+/PlymBattle/Battle For Plymouth/third_party/PhysX-106.1-physx-5.4.2/flow/_build/
