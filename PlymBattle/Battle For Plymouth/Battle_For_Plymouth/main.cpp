@@ -54,6 +54,7 @@ int main(int argc, char* argv[])
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
     SDL_Window* window = SDL_CreateWindow(
         "SDL3 + OpenGL 4", 960, 540,
@@ -104,18 +105,29 @@ int main(int argc, char* argv[])
     std::printf("OpenGL version: %s\n",
         reinterpret_cast<const char*>(glGetString(GL_VERSION)));
 
-
+    GLint yawLocation = glGetUniformLocation(shaderProgram, "uYaw");
 
     const float vertices[] = {
-        -0.6f, -0.5f, 0.0f, //bottom left
-        0.6f, -0.5f, 0.0f, //bottom right
-        0.6f, 0.5f, 0.0f, //top right
-        -0.6f, 0.5f, 0.0f //top left
+        // Rectangle at Z = +0.35
+        -0.6f, -0.5f,  0.35f,  // 0: bottom left
+         0.6f, -0.5f,  0.35f,  // 1: bottom right
+         0.6f,  0.5f,  0.35f,  // 2: top right
+        -0.6f,  0.5f,  0.35f,  // 3: top left
+
+        // Matching corners at Z = -0.35
+        -0.6f, -0.5f, -0.35f,  // 4: bottom left
+         0.6f, -0.5f, -0.35f,  // 5: bottom right
+         0.6f,  0.5f, -0.35f,  // 6: top right
+        -0.6f,  0.5f, -0.35f   // 7: top left
     };
 
     const unsigned int indices[] = {
-        0,1,2,
-        0,2,3
+        0, 1, 2,   0, 2, 3,  // +Z face, your original rectangle
+        5, 4, 7,   5, 7, 6,  // -Z face
+        1, 5, 6,   1, 6, 2,  // Right
+        4, 0, 3,   4, 3, 7,  // Left
+        3, 2, 6,   3, 6, 7,  // Top
+        4, 5, 1,   4, 1, 0   // Bottom
     };
 
     GLuint vao = 0;
@@ -136,6 +148,8 @@ int main(int argc, char* argv[])
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
+    glEnable(GL_DEPTH_TEST);
+
     bool running = true;
     while (running) {
         SDL_Event event;
@@ -146,11 +160,15 @@ int main(int argc, char* argv[])
         }
 
         glClearColor(0.08f, 0.18f, 0.32f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
 
         glUseProgram(shaderProgram);
         glBindVertexArray(vao);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+
+        float seconds = static_cast<float>(SDL_GetTicks()) / 1000.0f;
+        glUniform1f(yawLocation, seconds * 0.8f);
+
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
 
         SDL_GL_SwapWindow(window);
     }
