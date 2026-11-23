@@ -106,6 +106,7 @@ int main(int argc, char* argv[])
         reinterpret_cast<const char*>(glGetString(GL_VERSION)));
 
     GLint yawLocation = glGetUniformLocation(shaderProgram, "uYaw");
+    GLint aspectLocation = glGetUniformLocation(shaderProgram, "uAspect");
 
     const float vertices[] = {
         // Rectangle at Z = +0.35
@@ -164,6 +165,17 @@ int main(int argc, char* argv[])
 
         glUseProgram(shaderProgram);
         glBindVertexArray(vao);
+
+        int pixelWidth = 0;
+        int pixelHeight = 0;
+
+        if (SDL_GetWindowSizeInPixels(window, &pixelWidth, &pixelHeight)
+            && pixelWidth > 0 && pixelHeight > 0) {
+            glViewport(0, 0, pixelWidth, pixelHeight);
+            glUniform1f(aspectLocation,
+                static_cast<float>(pixelWidth) / pixelHeight);
+
+        }
 
         float seconds = static_cast<float>(SDL_GetTicks()) / 1000.0f;
         glUniform1f(yawLocation, seconds * 0.8f);

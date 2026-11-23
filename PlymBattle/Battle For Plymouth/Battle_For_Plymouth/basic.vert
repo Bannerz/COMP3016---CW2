@@ -4,6 +4,8 @@ layout(location = 0) in vec3 aPosition;
 
 uniform float uYaw;
 
+uniform float uAspect;
+
 out vec3 vPosition;
 
 void main()
@@ -15,7 +17,7 @@ void main()
     vec3 turned = vec3(
         cos(yaw) * aPosition.x + sin(yaw) * aPosition.z,
         aPosition.y,
-        -sin(yaw) * aPosition.x * cos(yaw) * aPosition.z
+        -sin(yaw) * aPosition.x + cos(yaw) * aPosition.z
     );
 
     //tilt around x
@@ -27,5 +29,17 @@ void main()
 
     vPosition = tilted;
 
-    gl_Position = vec4(tilted, 1.0);
+    //express the vertex relative to the camera
+    vec3 viewPosition = tilted - vec3(0.0,0.0,3.0);
+
+    float nearPlane = 0.1;
+    float farPlane = 100.0;
+    float focalScale = 1.0 / tan(radians(60.0) * 0.5);
+
+    gl_Position = vec4(
+        viewPosition.x * focalScale / uAspect,
+        viewPosition.y * focalScale,
+        -(farPlane + nearPlane) / (farPlane - nearPlane) * viewPosition.z - (2.0 * farPlane * nearPlane) / (farPlane - nearPlane),
+        -viewPosition.z
+    );
 }
