@@ -108,6 +108,10 @@ int main(int argc, char* argv[])
     GLint yawLocation = glGetUniformLocation(shaderProgram, "uYaw");
     GLint aspectLocation = glGetUniformLocation(shaderProgram, "uAspect");
 
+    GLint cameraZLocation = glGetUniformLocation(shaderProgram, "uCameraZ");
+    float cameraZ = 3.0f;
+    Uint64 previousTicks = SDL_GetTicks();
+
     const float vertices[] = {
         // Rectangle at Z = +0.35
         -0.6f, -0.5f,  0.35f,  // 0: bottom left
@@ -160,10 +164,31 @@ int main(int argc, char* argv[])
             }
         }
 
+        Uint64 now = SDL_GetTicks();
+        float deltaTime = static_cast<float>(now - previousTicks) / 1000.0f;
+        previousTicks = now;
+
+        const bool* keys = SDL_GetKeyboardState(nullptr);
+        const float cameraSpeed = 1.5f;
+
+        if (keys[SDL_SCANCODE_W]) {
+            cameraZ -= cameraSpeed * deltaTime;
+        }
+
+        if (keys[SDL_SCANCODE_S]) {
+            cameraZ += cameraSpeed * deltaTime;
+        }
+
+        if (cameraZ < 1.2f) cameraZ = 1.2f;
+        if (cameraZ > 8.0f) cameraZ = 8.0f;
+
         glClearColor(0.08f, 0.18f, 0.32f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
 
         glUseProgram(shaderProgram);
+
+        glUniform1f(cameraZLocation, cameraZ);
+
         glBindVertexArray(vao);
 
         int pixelWidth = 0;

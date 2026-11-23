@@ -6,6 +6,8 @@ uniform float uYaw;
 
 uniform float uAspect;
 
+uniform float uCameraZ;
+
 out vec3 vPosition;
 
 void main()
@@ -30,7 +32,7 @@ void main()
     vPosition = tilted;
 
     //express the vertex relative to the camera
-    vec3 viewPosition = tilted - vec3(0.0,0.0,3.0);
+    vec3 viewPosition = tilted - vec3(0.0,0.0, uCameraZ);
 
     float nearPlane = 0.1;
     float farPlane = 100.0;
