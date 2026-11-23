@@ -3,3 +3,5 @@ Plymouth_Editor/export/
 __pycache__/
 .vs/
 /PlymBattle/Battle For Plymouth/third_party/PhysX-106.1-physx-5.4.2/flow/_build/
+/PlymBattle/Battle For Plymouth/assimp-local
+/PlymBattle/Battle For Plymouth/build-assimp

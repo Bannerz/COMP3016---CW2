@@ -9,6 +9,12 @@
 #include <sstream>
 #include <string>
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
+#include <vector>
+
 #pragma comment(lib, "opengl32.lib")
 
 
@@ -155,6 +161,69 @@ int main(int argc, char* argv[])
 
     glEnable(GL_DEPTH_TEST);
 
+    GLsizei indexCount = 36; //box has 36 indiicies for fallback
+
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(
+        "../../../sword_test_model.glb",
+        aiProcess_Triangulate
+    );
+
+    if (scene == nullptr) {
+        std::fprintf(stderr, "Assimp import failed: %s\n",
+            importer.GetErrorString());
+    }
+    else {
+        std::printf("Loaded %u meshes\n", scene->mNumMeshes);
+
+        for (unsigned i = 0; i < scene->mNumMeshes; ++i) {
+            const aiMesh* mesh = scene->mMeshes[i];
+            std::printf("Mesh %u: %u vertices, %u faces\n",
+                i, mesh->mNumVertices, mesh->mNumFaces);
+        }
+
+        if (scene->mNumMeshes > 0) {
+            const aiMesh* mesh = scene->mMeshes[0];
+
+            std::vector<float> swordVertices;
+            for (unsigned i = 0; i < mesh->mNumVertices; ++i) {
+                const aiVector3D& position = mesh->mVertices[i];
+                swordVertices.push_back(position.x);
+                swordVertices.push_back(position.y);
+                swordVertices.push_back(position.z);
+            }
+
+            std::vector<unsigned int> swordIndices;
+            for (unsigned i = 0; i < mesh->mNumFaces; ++i) {
+                const aiFace& face = mesh->mFaces[i];
+                if (face.mNumIndices != 3) {
+                    continue;
+                }
+
+                swordIndices.push_back(face.mIndices[0]);
+                swordIndices.push_back(face.mIndices[1]);
+                swordIndices.push_back(face.mIndices[2]);
+            }
+
+            if (!swordVertices.empty() && !swordIndices.empty()) {
+                glBindVertexArray(vao);
+
+                glBindBuffer(GL_ARRAY_BUFFER, vbo);
+                glBufferData(GL_ARRAY_BUFFER,
+                    swordVertices.size() * sizeof(float),
+                    swordVertices.data(), GL_STATIC_DRAW);
+
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+                glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                    swordIndices.size() * sizeof(unsigned int),
+                    swordIndices.data(), GL_STATIC_DRAW);
+
+                indexCount = static_cast<GLsizei>(swordIndices.size());
+                std::printf("Uploaded %d sword indices\n", indexCount);
+            }
+        }
+    }
+
     bool running = true;
     while (running) {
         SDL_Event event;
@@ -205,7 +274,7 @@ int main(int argc, char* argv[])
         float seconds = static_cast<float>(SDL_GetTicks()) / 1000.0f;
         glUniform1f(yawLocation, seconds * 0.8f);
 
-        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
+        glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, nullptr);
 
         SDL_GL_SwapWindow(window);
     }
