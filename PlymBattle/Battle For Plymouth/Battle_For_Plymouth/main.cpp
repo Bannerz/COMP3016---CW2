@@ -49,6 +49,38 @@ GLuint compileShader(GLenum type, const char* path) {
     return shader;
 }
 
+GLuint loadTexture(const char* path)
+{
+    SDL_Surface* bmp = SDL_LoadBMP(path);
+    if (!bmp) {
+        std::fprintf(stderr, "Texture load failed: %s\n", SDL_GetError());
+        return 0;
+    }
+
+    SDL_Surface* rgba = SDL_ConvertSurface(bmp, SDL_PIXELFORMAT_RGBA32);
+    SDL_DestroySurface(bmp);
+    if (!rgba) {
+        std::fprintf(stderr, "Texture conversion failed: %s\n", SDL_GetError());
+        return 0;
+    }
+
+    GLuint texture = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, rgba->pitch / 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, rgba->w, rgba->h, 0,
+        GL_RGBA, GL_UNSIGNED_BYTE, rgba->pixels);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    SDL_DestroySurface(rgba);
+    return texture;
+}
+
 int main(int argc, char* argv[])
 {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -162,12 +194,19 @@ int main(int argc, char* argv[])
     glEnable(GL_DEPTH_TEST);
 
     GLsizei indexCount = 36; //box has 36 indiicies for fallback
+    GLuint swordTexture = 0;
+
 
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(
         "../../../sword_test_model.glb",
         aiProcess_Triangulate
     );
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
+        reinterpret_cast<const void*>(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
 
     if (scene == nullptr) {
         std::fprintf(stderr, "Assimp import failed: %s\n",
@@ -191,6 +230,16 @@ int main(int argc, char* argv[])
                 swordVertices.push_back(position.x);
                 swordVertices.push_back(position.y);
                 swordVertices.push_back(position.z);
+
+                if (mesh->HasTextureCoords(0)) {
+                    const aiVector3D& uv = mesh->mTextureCoords[0][i];
+                    swordVertices.push_back(uv.x);
+                    swordVertices.push_back(1.0f - uv.y);
+                }
+                else {
+                    swordVertices.push_back(0.0f);
+                    swordVertices.push_back(0.0f);
+                }
             }
 
             std::vector<unsigned int> swordIndices;
@@ -220,9 +269,16 @@ int main(int argc, char* argv[])
 
                 indexCount = static_cast<GLsizei>(swordIndices.size());
                 std::printf("Uploaded %d sword indices\n", indexCount);
+
+                if (mesh->HasTextureCoords(0)) {
+                    swordTexture = loadTexture("../../../Sword_BaseColor.bmp");
+                }
             }
         }
     }
+
+    GLint baseColorLocation = glGetUniformLocation(shaderProgram, "uBaseColor");
+    GLint useTextureLocation = glGetUniformLocation(shaderProgram, "uUseTexture");
 
     bool running = true;
     while (running) {
@@ -255,6 +311,11 @@ int main(int argc, char* argv[])
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
 
         glUseProgram(shaderProgram);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, swordTexture);
+        glUniform1i(baseColorLocation, 0);  // The sampler reads texture unit 0.
+        glUniform1i(useTextureLocation, swordTexture != 0);
 
         glUniform1f(cameraZLocation, cameraZ);
 

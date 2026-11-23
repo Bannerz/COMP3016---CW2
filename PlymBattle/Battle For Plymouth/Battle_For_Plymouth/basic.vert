@@ -10,6 +10,9 @@ uniform float uCameraZ;
 
 out vec3 vPosition;
 
+layout(location = 1) in vec2 aUV;
+out vec2 vUV;
+
 void main()
 {
     float yaw = uYaw;
@@ -30,6 +33,7 @@ void main()
     );
 
     vPosition = tilted;
+    vUV = aUV;
 
     //express the vertex relative to the camera
     vec3 viewPosition = tilted - vec3(0.0,0.0, uCameraZ);
