@@ -13,8 +13,32 @@ out vec3 vPosition;
 layout(location = 1) in vec2 aUV;
 out vec2 vUV;
 
+layout(location = 2) in vec3 aMapColor;
+out vec3 vMapColor;
+
+uniform bool uMapPreview;
+uniform mat4 uModel;
+
 void main()
 {
+
+    vMapColor = aMapColor;
+
+    if (uMapPreview) {
+        vec3 world = (uModel * vec4(aPosition, 1.0)).xyz;
+
+        vPosition = world;
+        vUV = vec2(0.0);
+
+        // Look straight down. Map X goes right, and north goes up.
+        float halfHeight = 1650.0;
+        gl_Position = vec4(world.x / (halfHeight * uAspect),
+                           -world.z / halfHeight,
+                           -world.y / 2000.0,
+                           1.0);
+        return;
+    }
+
     float yaw = uYaw;
     float pitch = radians(20.0);
 

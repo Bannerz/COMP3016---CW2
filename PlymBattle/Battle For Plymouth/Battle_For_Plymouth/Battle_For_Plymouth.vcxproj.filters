@@ -23,4 +23,9 @@
     <None Include="basic.vert" />
     <None Include="basic.frag" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="MapPreview.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+  </ItemGroup>
 </Project>

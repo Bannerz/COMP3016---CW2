@@ -15,6 +15,8 @@
 
 #include <vector>
 
+#include "MapPreview.h"
+
 #pragma comment(lib, "opengl32.lib")
 
 
@@ -280,6 +282,15 @@ int main(int argc, char* argv[])
     GLint baseColorLocation = glGetUniformLocation(shaderProgram, "uBaseColor");
     GLint useTextureLocation = glGetUniformLocation(shaderProgram, "uUseTexture");
 
+    MapPreview map;
+    bool showMap = map.load("../../../Plymouth_Editor/export/world.glb");
+
+    GLint mapPreviewLocation = glGetUniformLocation(shaderProgram, "uMapPreview");
+    GLint modelLocation = glGetUniformLocation(shaderProgram, "uModel");
+    GLint mapTintLocation = glGetUniformLocation(shaderProgram, "uMapTint");
+
+
+
     bool running = true;
     while (running) {
         SDL_Event event;
@@ -335,13 +346,24 @@ int main(int argc, char* argv[])
         float seconds = static_cast<float>(SDL_GetTicks()) / 1000.0f;
         glUniform1f(yawLocation, seconds * 0.8f);
 
-        glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, nullptr);
+        //glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, nullptr);
+
+        glUniform1i(mapPreviewLocation, showMap);
+
+        if (showMap) {
+            glUniform1i(useTextureLocation, 0);
+            map.draw(modelLocation, mapTintLocation);
+        }
+        else {
+            glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, nullptr);
+        }
 
         SDL_GL_SwapWindow(window);
     }
 
     glDeleteVertexArrays(1, &vao);
     glDeleteBuffers(1, &vbo);
+    map.release();
     SDL_GL_DestroyContext(context);
     SDL_DestroyWindow(window);
     SDL_Quit();

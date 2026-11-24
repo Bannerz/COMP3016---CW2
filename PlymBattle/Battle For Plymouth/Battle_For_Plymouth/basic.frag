@@ -7,6 +7,10 @@ in vec2 vUV;
 uniform sampler2D uBaseColor;
 uniform bool uUseTexture;
 
+in vec3 vMapColor;
+uniform bool uMapPreview;
+uniform vec3 uMapTint;
+
 void main()
 {
     vec3 normal = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
@@ -18,6 +22,10 @@ void main()
     vec3 baseColor = uUseTexture
         ? texture(uBaseColor, vUV).rgb
         : vec3(1.0, 0.55, 0.15);
+
+    if (uMapPreview) {
+        baseColor = vMapColor * uMapTint;
+    }
 
     fragColor = vec4(baseColor * brightness, 1.0);
 }
