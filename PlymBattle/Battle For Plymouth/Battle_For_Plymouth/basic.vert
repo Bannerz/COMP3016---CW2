@@ -8,6 +8,12 @@ uniform float uAspect;
 
 uniform float uCameraZ;
 
+uniform vec3 uMapEye;
+
+uniform float uMapYaw;
+
+uniform float uMapPitch;
+
 out vec3 vPosition;
 
 layout(location = 1) in vec2 aUV;
@@ -30,12 +36,33 @@ void main()
         vPosition = world;
         vUV = vec2(0.0);
 
-        // Look straight down. Map X goes right, and north goes up.
-        float halfHeight = 1650.0;
-        gl_Position = vec4(world.x / (halfHeight * uAspect),
-                           -world.z / halfHeight,
-                           -world.y / 2000.0,
-                           1.0);
+       vec3 offset = world - uMapEye;
+
+       float c = cos(uMapYaw);
+       float s = sin(uMapYaw);
+       vec3 view = vec3(
+           c * offset.x + s * offset.z,
+           offset.y,
+          -s * offset.x + c * offset.z
+       );
+
+       // Point the camera 25 degrees down.
+       float pitch = uMapPitch;
+       view = vec3(view.x,
+                   cos(pitch) * view.y - sin(pitch) * view.z,
+                   sin(pitch) * view.y + cos(pitch) * view.z);
+
+       float nearPlane = 0.5;
+       float farPlane = 4500.0;
+       float focalScale = 1.0 / tan(radians(60.0) * 0.5);
+
+       gl_Position = vec4(
+           view.x * focalScale / uAspect,
+           view.y * focalScale,
+           -(farPlane + nearPlane) / (farPlane - nearPlane) * view.z
+               - (2.0 * farPlane * nearPlane) / (farPlane - nearPlane),
+           -view.z
+       );
         return;
     }
 

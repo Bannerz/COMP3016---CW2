@@ -15,6 +15,8 @@
 
 #include <vector>
 
+#include<cmath>
+
 #include "MapPreview.h"
 
 #pragma comment(lib, "opengl32.lib")
@@ -289,7 +291,23 @@ int main(int argc, char* argv[])
     GLint modelLocation = glGetUniformLocation(shaderProgram, "uModel");
     GLint mapTintLocation = glGetUniformLocation(shaderProgram, "uMapTint");
 
+    GLint mapEyeLocation = glGetUniformLocation(shaderProgram, "uMapEye");
+    GLint mapYawLocation = glGetUniformLocation(shaderProgram, "uMapYaw");
 
+    float mapX = -80.0f;
+    float mapY = 75.0f;
+    float mapZ = 235.0f;
+    float mapYaw = 0.0f;
+
+    previousTicks = SDL_GetTicks();  // Exclude the time it took to load the map.
+
+    GLint mapPitchLocation = glGetUniformLocation(shaderProgram, "uMapPitch");
+    float mapPitch = 0.4363f;  // Start at the same 25-degree downward angle.
+    const float mouseSensitivity = 0.0025f;
+
+    if (showMap && !SDL_SetWindowRelativeMouseMode(window, true)) {
+        std::fprintf(stderr, "Could not capture mouse: %s\n", SDL_GetError());
+    }
 
     bool running = true;
     while (running) {
@@ -298,6 +316,27 @@ int main(int argc, char* argv[])
             if (event.type == SDL_EVENT_QUIT) {
                 running = false;
             }
+
+            if (showMap) {
+                if (event.type == SDL_EVENT_KEY_DOWN &&
+                    event.key.scancode == SDL_SCANCODE_ESCAPE) {
+                    SDL_SetWindowRelativeMouseMode(window, false);
+                }
+
+                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+                    event.button.button == SDL_BUTTON_LEFT) {
+                    SDL_SetWindowRelativeMouseMode(window, true);
+                }
+
+                if (event.type == SDL_EVENT_MOUSE_MOTION &&
+                    SDL_GetWindowRelativeMouseMode(window)) {
+                    mapYaw += event.motion.xrel * mouseSensitivity;
+                    mapPitch += event.motion.yrel * mouseSensitivity;
+
+                    if (mapPitch < -1.55f) mapPitch = -1.55f;
+                    if (mapPitch > 1.55f) mapPitch = 1.55f;
+                }
+            }
         }
 
         Uint64 now = SDL_GetTicks();
@@ -305,6 +344,28 @@ int main(int argc, char* argv[])
         previousTicks = now;
 
         const bool* keys = SDL_GetKeyboardState(nullptr);
+
+        if (showMap) {
+            float turn = 0.0f;
+            if (keys[SDL_SCANCODE_LEFT])  turn -= 1.0f;
+            if (keys[SDL_SCANCODE_RIGHT]) turn += 1.0f;
+            mapYaw += turn * 1.2f * deltaTime;
+
+            float forward = 0.0f;
+            float strafe = 0.0f;
+            if (keys[SDL_SCANCODE_W]) forward += 1.0f;
+            if (keys[SDL_SCANCODE_S]) forward -= 1.0f;
+            if (keys[SDL_SCANCODE_D]) strafe += 1.0f;
+            if (keys[SDL_SCANCODE_A]) strafe -= 1.0f;
+
+            float step = 25.0f * deltaTime;
+            mapX += (std::sin(mapYaw) * forward + std::cos(mapYaw) * strafe) * step;
+            mapZ += (-std::cos(mapYaw) * forward + std::sin(mapYaw) * strafe) * step;
+
+            if (keys[SDL_SCANCODE_SPACE]) mapY += step;
+            if (keys[SDL_SCANCODE_LCTRL]) mapY -= step;
+        }
+
         const float cameraSpeed = 1.5f;
 
         if (keys[SDL_SCANCODE_W]) {
@@ -352,6 +413,9 @@ int main(int argc, char* argv[])
 
         if (showMap) {
             glUniform1i(useTextureLocation, 0);
+            glUniform3f(mapEyeLocation, mapX, mapY, mapZ);
+            glUniform1f(mapYawLocation, mapYaw);
+            glUniform1f(mapPitchLocation, mapPitch);
             map.draw(modelLocation, mapTintLocation);
         }
         else {
