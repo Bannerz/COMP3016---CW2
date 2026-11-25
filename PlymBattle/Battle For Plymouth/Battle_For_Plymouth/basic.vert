@@ -1,5 +1,6 @@
 #version 410 core
 
+//locations match the vertex attributes configured by the C++ upload code.
 layout(location = 0) in vec3 aPosition;
 
 uniform float uYaw;
@@ -30,6 +31,7 @@ void main()
 
     vMapColor = aMapColor;
 
+    //map vertices go from mesh-local space to world space, then to camera space.
     if (uMapPreview) {
         vec3 world = (uModel * vec4(aPosition, 1.0)).xyz;
 
@@ -38,6 +40,7 @@ void main()
 
        vec3 offset = world - uMapEye;
 
+       //express the offset in the camera basis. Forward is negative Z in view space.
        float c = cos(uMapYaw);
        float s = sin(uMapYaw);
        vec3 view = vec3(
@@ -46,7 +49,7 @@ void main()
           -s * offset.x + c * offset.z
        );
 
-       // Point the camera 25 degrees down.
+       //positive pitch looks down. Mouse input updates this angle in radians.
        float pitch = uMapPitch;
        view = vec3(view.x,
                    cos(pitch) * view.y - sin(pitch) * view.z,
@@ -56,6 +59,7 @@ void main()
        float farPlane = 4500.0;
        float focalScale = 1.0 / tan(radians(60.0) * 0.5);
 
+       //the perspective divide uses -view.z, so distant geometry appears smaller.
        gl_Position = vec4(
            view.x * focalScale / uAspect,
            view.y * focalScale,
@@ -69,14 +73,14 @@ void main()
     float yaw = uYaw;
     float pitch = radians(20.0);
 
-    //turn around y. x and z change
+    //spin the sword around Y, leaving its vertical coordinate unchanged.
     vec3 turned = vec3(
         cos(yaw) * aPosition.x + sin(yaw) * aPosition.z,
         aPosition.y,
         -sin(yaw) * aPosition.x + cos(yaw) * aPosition.z
     );
 
-    //tilt around x
+    //apply a fixed tilt around X so the preview shows more than one side.
     vec3 tilted = vec3(
         turned.x,
         cos(pitch) * turned.y - sin(pitch) * turned.z,
@@ -86,7 +90,7 @@ void main()
     vPosition = tilted;
     vUV = aUV;
 
-    //express the vertex relative to the camera
+    //the sword camera translates along Z and uses a shorter viewing range.
     vec3 viewPosition = tilted - vec3(0.0,0.0, uCameraZ);
 
     float nearPlane = 0.1;

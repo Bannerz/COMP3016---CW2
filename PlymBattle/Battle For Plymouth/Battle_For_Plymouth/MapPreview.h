@@ -15,6 +15,7 @@ class MapPreview {
         aiColor4D tint{ 1, 1, 1, 1 };
     };
 
+    // Many placements can point at the same uploaded mesh.
     struct Placement {
         unsigned meshIndex;
         aiMatrix4x4 transform;
@@ -25,6 +26,7 @@ class MapPreview {
 
     void collectNodes(const aiNode* node, const aiMatrix4x4& parent)
     {
+        // Assimp stores each node relative to its parent. Accumulate the world transform.
         aiMatrix4x4 world = parent * node->mTransformation;
 
         for (unsigned i = 0; i < node->mNumMeshes; ++i)
@@ -50,6 +52,7 @@ public:
             const aiMesh* source = scene->mMeshes[i];
             Mesh& mesh = meshes[i];
 
+            // Interleave position and RGB. White leaves the material tint unchanged.
             std::vector<float> vertices;
             vertices.reserve(source->mNumVertices * 6);
             for (unsigned j = 0; j < source->mNumVertices; ++j) {
@@ -71,6 +74,7 @@ public:
 
             if (indices.empty()) continue;
 
+            // The map preview combines this material colour with vertex colours.
             scene->mMaterials[source->mMaterialIndex]->Get(
                 AI_MATKEY_BASE_COLOR, mesh.tint);
 
@@ -96,6 +100,7 @@ public:
             mesh.indexCount = static_cast<GLsizei>(indices.size());
         }
 
+        // Copy the placement data before the local importer releases its scene.
         collectNodes(scene->mRootNode, aiMatrix4x4{});
         std::printf("Map loaded: %zu meshes, %zu placements\n",
             meshes.size(), placements.size());
@@ -104,6 +109,7 @@ public:
 
     void draw(GLint modelLocation, GLint tintLocation) const
     {
+        // Draw each placement with its own transform and the referenced mesh buffers.
         for (const Placement& placement : placements) {
             const Mesh& mesh = meshes[placement.meshIndex];
             if (mesh.indexCount == 0) continue;

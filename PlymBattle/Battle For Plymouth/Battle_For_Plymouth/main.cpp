@@ -23,6 +23,7 @@
 
 
 
+//read a GLSL file and let the driver compile it. A zero handle signals failure.
 GLuint compileShader(GLenum type, const char* path) {
     std::ifstream file(path);
     if (!file) {
@@ -53,6 +54,7 @@ GLuint compileShader(GLenum type, const char* path) {
     return shader;
 }
 
+//load the sword preview image from a separate BMP and upload it to the GPU.
 GLuint loadTexture(const char* path)
 {
     SDL_Surface* bmp = SDL_LoadBMP(path);
@@ -72,11 +74,13 @@ GLuint loadTexture(const char* path)
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
 
+    //SDL gives the byte stride between rows. OpenGL wants the stride in RGBA pixels.
     glPixelStorei(GL_UNPACK_ROW_LENGTH, rgba->pitch / 4);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, rgba->w, rgba->h, 0,
         GL_RGBA, GL_UNSIGNED_BYTE, rgba->pixels);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
+    //smaller copies reduce shimmering when the sword is far from the camera.
     glGenerateMipmap(GL_TEXTURE_2D);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -92,6 +96,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    //SDL uses these attributes when it creates the context and its depth buffer.
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -110,6 +115,7 @@ int main(int argc, char* argv[])
 
     SDL_GLContext context = SDL_GL_CreateContext(window);
 
+    //load OpenGL entry points after SDL has made the context current.
     glewExperimental = GL_TRUE;
     GLenum status = glewInit();
 
@@ -127,6 +133,7 @@ int main(int argc, char* argv[])
     GLuint vertexShader = compileShader(GL_VERTEX_SHADER, "basic.vert");
     GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, "basic.frag");
 
+    //link the compiled stages into a single program that can be bound for drawing.
     GLuint shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
@@ -147,6 +154,7 @@ int main(int argc, char* argv[])
     std::printf("OpenGL version: %s\n",
         reinterpret_cast<const char*>(glGetString(GL_VERSION)));
 
+    //look up uniform locations once. Each frame supplies the current values.
     GLint yawLocation = glGetUniformLocation(shaderProgram, "uYaw");
     GLint aspectLocation = glGetUniformLocation(shaderProgram, "uAspect");
 
@@ -154,14 +162,15 @@ int main(int argc, char* argv[])
     float cameraZ = 3.0f;
     Uint64 previousTicks = SDL_GetTicks();
 
+    //upload the original box geometry before attempting to load the sword.
     const float vertices[] = {
-        // Rectangle at Z = +0.35
+        //rectangle at Z = +0.35
         -0.6f, -0.5f,  0.35f,  // 0: bottom left
          0.6f, -0.5f,  0.35f,  // 1: bottom right
          0.6f,  0.5f,  0.35f,  // 2: top right
         -0.6f,  0.5f,  0.35f,  // 3: top left
 
-        // Matching corners at Z = -0.35
+        //matching corners at Z = -0.35
         -0.6f, -0.5f, -0.35f,  // 4: bottom left
          0.6f, -0.5f, -0.35f,  // 5: bottom right
          0.6f,  0.5f, -0.35f,  // 6: top right
@@ -169,7 +178,7 @@ int main(int argc, char* argv[])
     };
 
     const unsigned int indices[] = {
-        0, 1, 2,   0, 2, 3,  // +Z face, your original rectangle
+        0, 1, 2,   0, 2, 3,  // +Z face, the original rectangle
         5, 4, 7,   5, 7, 6,  // -Z face
         1, 5, 6,   1, 6, 2,  // Right
         4, 0, 3,   4, 3, 7,  // Left
@@ -180,6 +189,7 @@ int main(int argc, char* argv[])
     GLuint vao = 0;
     GLuint vbo = 0;
 
+    //the VAO records the vertex layout and the index-buffer binding.
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
@@ -197,16 +207,18 @@ int main(int argc, char* argv[])
 
     glEnable(GL_DEPTH_TEST);
 
-    GLsizei indexCount = 36; //box has 36 indiicies for fallback
+    GLsizei indexCount = 36;  //six box faces, two triangles per face.
     GLuint swordTexture = 0;
 
 
+    //load the sword once. Assimp owns the scene data during this import.
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(
         "../../../sword_test_model.glb",
         aiProcess_Triangulate
     );
 
+    //describe the sword vertex layout: three position floats followed by two UV floats.
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
         reinterpret_cast<const void*>(3 * sizeof(float)));
@@ -238,6 +250,7 @@ int main(int argc, char* argv[])
                 if (mesh->HasTextureCoords(0)) {
                     const aiVector3D& uv = mesh->mTextureCoords[0][i];
                     swordVertices.push_back(uv.x);
+                    //match the top-first pixel rows loaded by SDL from the BMP.
                     swordVertices.push_back(1.0f - uv.y);
                 }
                 else {
@@ -258,6 +271,7 @@ int main(int argc, char* argv[])
                 swordIndices.push_back(face.mIndices[2]);
             }
 
+            //replace the box data in the existing buffers after a successful import.
             if (!swordVertices.empty() && !swordIndices.empty()) {
                 glBindVertexArray(vao);
 
@@ -284,6 +298,7 @@ int main(int argc, char* argv[])
     GLint baseColorLocation = glGetUniformLocation(shaderProgram, "uBaseColor");
     GLint useTextureLocation = glGetUniformLocation(shaderProgram, "uUseTexture");
 
+    //the map owns separate mesh buffers and a list of where to draw each mesh.
     MapPreview map;
     bool showMap = map.load("../../../Plymouth_Editor/export/world.glb");
 
@@ -294,15 +309,16 @@ int main(int argc, char* argv[])
     GLint mapEyeLocation = glGetUniformLocation(shaderProgram, "uMapEye");
     GLint mapYawLocation = glGetUniformLocation(shaderProgram, "uMapYaw");
 
+    //start above the town. The map uses Y for height and looks towards -Z at zero yaw.
     float mapX = -80.0f;
     float mapY = 75.0f;
     float mapZ = 235.0f;
     float mapYaw = 0.0f;
 
-    previousTicks = SDL_GetTicks();  // Exclude the time it took to load the map.
+    previousTicks = SDL_GetTicks();  //exclude the time it took to load the map.
 
     GLint mapPitchLocation = glGetUniformLocation(shaderProgram, "uMapPitch");
-    float mapPitch = 0.4363f;  // Start at the same 25-degree downward angle.
+    float mapPitch = 0.4363f;  //start at the same 25-degree downward angle.
     const float mouseSensitivity = 0.0025f;
 
     if (showMap && !SDL_SetWindowRelativeMouseMode(window, true)) {
@@ -310,6 +326,7 @@ int main(int argc, char* argv[])
     }
 
     bool running = true;
+    //each frame processes input, updates the camera, draws and presents the result.
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -317,6 +334,7 @@ int main(int argc, char* argv[])
                 running = false;
             }
 
+            //escape releases the pointer. Click the map window to capture it again.
             if (showMap) {
                 if (event.type == SDL_EVENT_KEY_DOWN &&
                     event.key.scancode == SDL_SCANCODE_ESCAPE) {
@@ -330,9 +348,11 @@ int main(int argc, char* argv[])
 
                 if (event.type == SDL_EVENT_MOUSE_MOTION &&
                     SDL_GetWindowRelativeMouseMode(window)) {
+                    //relative motion is already a delta. Only held-key movement uses frame time.
                     mapYaw += event.motion.xrel * mouseSensitivity;
                     mapPitch += event.motion.yrel * mouseSensitivity;
 
+                    //keep the camera from pitching through vertical and flipping over.
                     if (mapPitch < -1.55f) mapPitch = -1.55f;
                     if (mapPitch > 1.55f) mapPitch = 1.55f;
                 }
@@ -358,6 +378,7 @@ int main(int argc, char* argv[])
             if (keys[SDL_SCANCODE_D]) strafe += 1.0f;
             if (keys[SDL_SCANCODE_A]) strafe -= 1.0f;
 
+            //yaw turns forward and strafe input into movement on the horizontal XZ plane.
             float step = 25.0f * deltaTime;
             mapX += (std::sin(mapYaw) * forward + std::cos(mapYaw) * strafe) * step;
             mapZ += (-std::cos(mapYaw) * forward + std::sin(mapYaw) * strafe) * step;
@@ -366,6 +387,7 @@ int main(int argc, char* argv[])
             if (keys[SDL_SCANCODE_LCTRL]) mapY -= step;
         }
 
+        //W and S also update the sword preview distance for the fallback draw.
         const float cameraSpeed = 1.5f;
 
         if (keys[SDL_SCANCODE_W]) {
@@ -386,7 +408,7 @@ int main(int argc, char* argv[])
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, swordTexture);
-        glUniform1i(baseColorLocation, 0);  // The sampler reads texture unit 0.
+        glUniform1i(baseColorLocation, 0);  //the sampler reads texture unit 0.
         glUniform1i(useTextureLocation, swordTexture != 0);
 
         glUniform1f(cameraZLocation, cameraZ);
@@ -396,6 +418,7 @@ int main(int argc, char* argv[])
         int pixelWidth = 0;
         int pixelHeight = 0;
 
+        //use the framebuffer size so projection and viewport agree after resizing.
         if (SDL_GetWindowSizeInPixels(window, &pixelWidth, &pixelHeight)
             && pixelWidth > 0 && pixelHeight > 0) {
             glViewport(0, 0, pixelWidth, pixelHeight);
@@ -407,7 +430,7 @@ int main(int argc, char* argv[])
         float seconds = static_cast<float>(SDL_GetTicks()) / 1000.0f;
         glUniform1f(yawLocation, seconds * 0.8f);
 
-        //glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, nullptr);
+        //both previews share the shader program. This uniform selects the map path.
 
         glUniform1i(mapPreviewLocation, showMap);
 
@@ -425,6 +448,7 @@ int main(int argc, char* argv[])
         SDL_GL_SwapWindow(window);
     }
 
+    //release GPU buffers while the OpenGL context is still active.
     glDeleteVertexArrays(1, &vao);
     glDeleteBuffers(1, &vbo);
     map.release();
