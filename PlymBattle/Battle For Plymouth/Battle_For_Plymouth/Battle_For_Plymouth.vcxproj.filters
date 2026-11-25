@@ -27,5 +27,8 @@
     <ClInclude Include="MapPreview.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="PlayerPhysics.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

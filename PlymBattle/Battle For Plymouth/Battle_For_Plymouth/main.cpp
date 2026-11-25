@@ -17,7 +17,10 @@
 
 #include<cmath>
 
+#include <PxPhysicsAPI.h>
+
 #include "MapPreview.h"
+#include "PlayerPhysics.h"
 
 #pragma comment(lib, "opengl32.lib")
 
@@ -325,10 +328,35 @@ int main(int argc, char* argv[])
         std::fprintf(stderr, "Could not capture mouse: %s\n", SDL_GetError());
     }
 
+    /*physx::PxDefaultAllocator allocator;
+    physx::PxDefaultErrorCallback errors;
+
+    physx::PxFoundation* foundation =
+        PxCreateFoundation(PX_PHYSICS_VERSION, allocator, errors);
+
+    if (foundation) {
+        std::puts("PhysX foundation ready");
+        foundation->release();
+    } */
+
+    PlayerPhysics player;
+    bool canWalk = showMap &&
+        player.start("../../../Plymouth_Editor/export/terrain.bin");
+
+    if (showMap && !canWalk) {
+        std::fprintf(stderr, "Player physics failed to start. Fly mode is available.\n");
+    }
+
+    bool flying = true;
+    previousTicks = SDL_GetTicks();
+
     bool running = true;
     //each frame processes input, updates the camera, draws and presents the result.
     while (running) {
         SDL_Event event;
+
+        bool jumpPressed = false;
+
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
                 running = false;
@@ -356,6 +384,16 @@ int main(int argc, char* argv[])
                     if (mapPitch < -1.55f) mapPitch = -1.55f;
                     if (mapPitch > 1.55f) mapPitch = 1.55f;
                 }
+
+                if (canWalk && event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
+                    if (event.key.scancode == SDL_SCANCODE_F2) {
+                        flying = !flying;
+                        std::puts(flying ? "Fly mode" : "Walk mode");
+                    }
+                    if (event.key.scancode == SDL_SCANCODE_SPACE && !flying) {
+                        jumpPressed = true;
+                    }
+                }
             }
         }
 
@@ -379,12 +417,32 @@ int main(int argc, char* argv[])
             if (keys[SDL_SCANCODE_A]) strafe -= 1.0f;
 
             //yaw turns forward and strafe input into movement on the horizontal XZ plane.
-            float step = 25.0f * deltaTime;
+            /*float step = 25.0f * deltaTime;
             mapX += (std::sin(mapYaw) * forward + std::cos(mapYaw) * strafe) * step;
             mapZ += (-std::cos(mapYaw) * forward + std::sin(mapYaw) * strafe) * step;
 
             if (keys[SDL_SCANCODE_SPACE]) mapY += step;
-            if (keys[SDL_SCANCODE_LCTRL]) mapY -= step;
+            if (keys[SDL_SCANCODE_LCTRL]) mapY -= step;*/
+
+            float moveX = std::sin(mapYaw) * forward + std::cos(mapYaw) * strafe;
+            float moveZ = -std::cos(mapYaw) * forward + std::sin(mapYaw) * strafe;
+
+            if (flying) {
+                float step = 25.0f * deltaTime;
+                mapX += moveX * step;
+                mapZ += moveZ * step;
+
+                if (keys[SDL_SCANCODE_SPACE]) mapY += step;
+                if (keys[SDL_SCANCODE_LCTRL]) mapY -= step;
+            }
+            else {
+                player.update(moveX * 4.0f, moveZ * 4.0f, jumpPressed, deltaTime);
+
+                auto feet = player.feet();
+                mapX = static_cast<float>(feet.x);
+                mapY = static_cast<float>(feet.y) + 1.65f;
+                mapZ = static_cast<float>(feet.z);
+            }
         }
 
         //W and S also update the sword preview distance for the fallback draw.

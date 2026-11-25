@@ -100,15 +100,15 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;PX_PHYSX_STATIC_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\glew-2.2.0\include;$(ProjectDir)..\assimp-local\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\glew-2.2.0\include;$(ProjectDir)..\assimp-local\include;$(ProjectDir)..\third_party\PhysX-106.1-physx-5.4.2\physx\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(ProjectDir)..\third_party\glew-2.2.0\lib\Release\x64\glew32s.lib;$(ProjectDir)..\assimp-local\lib\assimp-vc143-mtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\assimp-local\lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(ProjectDir)..\third_party\glew-2.2.0\lib\Release\x64\glew32s.lib;$(ProjectDir)..\assimp-local\lib\assimp-vc143-mtd.lib;PhysX_static.lib;PhysXCommon_static.lib;PhysXFoundation_static.lib;PhysXCooking_static.lib;PhysXExtensions_static.lib;PhysXCharacterKinematic_static.lib;PhysXPvdSDK_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\assimp-local\lib;$(ProjectDir)..\build-physx\output\bin\win.x86_64.vc143.md\debug</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -134,6 +134,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MapPreview.h" />
+    <ClInclude Include="PlayerPhysics.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
