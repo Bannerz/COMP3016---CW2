@@ -12,6 +12,9 @@ uniform bool uMapPreview;
 uniform vec3 uMapTint;
 uniform int uMapTextureMode;
 
+uniform bool uStaminaHud;
+uniform float uStaminaFraction;
+
 const int UV_TEXTURE = 1;
 const int PROJECTED_TEXTURE = 2;
 const int CANVAS = 3;
@@ -53,6 +56,27 @@ float fibreDetail(vec3 normal, bool thatch)
 
 void main()
 {
+
+    if (uStaminaHud) {
+        vec4 frame = texture(uBaseColor, vUV);
+        vec2 pixel = vUV * vec2(1000.0, 119.0);
+        float rightEdge = 884.0 - 0.7 * abs(pixel.y - 56.0);
+        bool inside = pixel.x >= 155.0 && pixel.x <= rightEdge
+                   && pixel.y >= 40.0 && pixel.y < 73.0;
+
+        vec3 gold = displayColor(frame.rgb);
+        if (inside) {
+            float fillEdge = mix(155.0, 884.0, uStaminaFraction);
+            vec3 green = vec3(0.24, 0.72, 0.28);
+            vec3 empty = vec3(0.07, 0.10, 0.07);
+            vec3 track = pixel.x < fillEdge ? green : empty;
+            fragColor = vec4(mix(track, gold, frame.a), 1.0);
+        } else {
+            fragColor = vec4(gold, frame.a);
+        }
+        return;
+    }
+
     // Cross the position gradients to estimate a flat surface normal.
     vec3 normal = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
     vec3 lightDirection = normalize(vec3(-0.5, 0.7, 1.0));

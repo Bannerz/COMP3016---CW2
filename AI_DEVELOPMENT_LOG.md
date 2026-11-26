@@ -205,3 +205,39 @@ The prompt summaries are reconstructed examples of the requests that guided the 
 **Refinement and verification** — The Debug build succeeded. A hidden OpenGL 4.1 test loaded 38 GPU textures, reported 3,097 UV-textured meshes and 3,345 meshes with fallback surface detail, and rendered the same Brookfield view with texturing enabled and disabled. AI inspected the comparison images and checked that OpenGL reported no errors after rendering and cleanup.
 
 **References** — [MapTextures.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/MapTextures.h>), [MapPreview.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/MapPreview.h>), [vertex shader](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/basic.vert>), [fragment shader](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/basic.frag>).
+
+### AI-17 — Sprinting and stamina (26 November 2026)
+
+**Objective** — Let the player sprint in walk mode and recover stamina between bursts of movement.
+
+**Representative prompt** — Guide me through adding sprinting and stamina to the existing walking controller. Show me where the new code goes and how to tune the sprint speed.
+
+**AI contribution** — Inspected the SDL input loop and PhysX controller. Supplied C++ examples for exposing the grounded state, normalising diagonal input, choosing the movement speed and updating stamina using the same capped timestep as physics. Explained where to paste the walking update. I integrated the examples and set the sprint speed to 10 game units per second, with walking at 4.
+
+**Refinement and verification** — AI inspected the integrated source. Holding Left Shift with forward input enables sprinting while grounded. The 100-point meter drains at 20 points per second, giving about five seconds of continuous sprinting. Grounded recovery runs at 15 points per second after a 0.75-second pause. After depletion, sprinting becomes available again at 25 points. The later Debug x64 builds included this code.
+
+**References** — [main.cpp](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/main.cpp>), [PlayerPhysics.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/PlayerPhysics.h>).
+
+### AI-18 — Green stamina HUD (26 November 2026)
+
+**Objective** — Display stamina in the supplied gold frame, with a green fill that shrinks as the player spends stamina.
+
+**Representative prompt** — Use the stamina frame I added to the game's UI assets. Walk me through loading it and drawing a green fill tied to the stamina value.
+
+**AI contribution** — Inspected the PNG and sampled its alpha channel to find the transparent opening. Supplied step-by-step examples for reusing the Windows Imaging Component upload path and drawing a screen-space quad with the existing GLSL program. I added the UI assets and integrated the PNG loader, shader changes and OpenGL draw call. The bar appears in the bottom-left in walk mode, with the green area sized by `stamina / maxStamina`.
+
+**Refinement and verification** — AI checked the pasted code and identified a stray `#` in the fragment shader. When I reported a PDB write error, AI checked available disk space and exclusive write access, then reran Debug x64 successfully. The build produced a fresh executable and PDB and reported linker warnings LNK4099 and LNK4098. A visual HUD playtest remains unverified in this record.
+
+**References** — [Stamina frame](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/assets/ui/stamina.png>), [MapTextures.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/MapTextures.h>), [vertex shader](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/basic.vert>), [fragment shader](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/basic.frag>).
+
+### AI-19 — Jump stamina cost and input buffering (26 November 2026)
+
+**Objective** — Spend a small amount of stamina at takeoff and make follow-up jumps register when Space is tapped just before landing.
+
+**Representative prompt** — Make jumping cost a little stamina. I sometimes miss a follow-up jump while moving, and this happened before stamina was added. Help me trace the input timing.
+
+**AI contribution** — Suggested charging five points when the grounded controller accepts a jump. After I reported the earlier chaining issue, AI traced the one-frame Space press and the ground contact check that could discard a press on the frame the player lands. AI provided a 150 ms input buffer that consumes the queued press at takeoff and charges stamina at the same point. I integrated both changes in the walking branch.
+
+**Refinement and verification** — AI checked the buffer, its consumption and the stamina charge in the current source. The local Debug x64 build log shows a successful link after the changes. An in-game check of consecutive jumps while moving remains pending.
+
+**References** — [main.cpp](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/main.cpp>), [PlayerPhysics.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/PlayerPhysics.h>).

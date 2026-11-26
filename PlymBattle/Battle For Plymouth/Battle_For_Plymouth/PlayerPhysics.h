@@ -435,6 +435,11 @@ public:
         return controller->getFootPosition();
     }
 
+    bool isGrounded() const
+    {
+        return grounded;
+    }
+
     ~PlayerPhysics()
     {
         if (manager) manager->release();

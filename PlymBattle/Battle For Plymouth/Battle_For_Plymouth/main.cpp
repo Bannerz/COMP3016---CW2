@@ -15,7 +15,9 @@
 
 #include <vector>
 
-#include<cmath>
+#include <cmath>
+
+#include <algorithm>
 
 #include <PxPhysicsAPI.h>
 
@@ -303,6 +305,15 @@ int main(int argc, char* argv[])
     GLint useTextureLocation = glGetUniformLocation(shaderProgram, "uUseTexture");
     GLint mapTextureModeLocation = glGetUniformLocation(shaderProgram, "uMapTextureMode");
 
+    const GLuint staminaFrame = MapTextures{}.loadPng(L"assets/ui/stamina.png");
+    if (staminaFrame != 0) {
+        std::puts("Stamina frame loaded");
+    }
+
+    const GLint staminaHudLocation = glGetUniformLocation(shaderProgram, "uStaminaHud");
+    const GLint staminaRectLocation = glGetUniformLocation(shaderProgram, "uStaminaRect");
+    const GLint staminaFractionLocation = glGetUniformLocation(shaderProgram, "uStaminaFraction");
+
     //the map owns separate mesh buffers and a list of where to draw each mesh.
     MapPreview map;
     bool showMap = map.load("../../../Plymouth_Editor/export/world.glb");
@@ -359,6 +370,23 @@ int main(int argc, char* argv[])
     }
 
     bool flying = true;
+
+    constexpr float walkSpeed = 4.0f;
+    constexpr float sprintSpeed = 10.0f;
+    constexpr float maxStamina = 100.0f;
+    constexpr float sprintDrainPerSecond = 20.0f;
+    constexpr float staminaRecoveryPerSecond = 15.0f;
+    constexpr float recoveryDelay = 0.75f;
+    constexpr float staminaToResume = 25.0f;
+    constexpr float jumpStaminaCost = 5.0f;
+
+    constexpr Uint64 jumpBufferMs = 150;
+    Uint64 jumpQueuedUntil = 0;
+
+    float stamina = maxStamina;
+    float recoveryDelayRemaining = 0.0f;
+    bool exhausted = false;
+
     previousTicks = SDL_GetTicks();
 
     bool running = true;
@@ -416,6 +444,13 @@ int main(int argc, char* argv[])
         float deltaTime = static_cast<float>(now - previousTicks) / 1000.0f;
         previousTicks = now;
 
+        if (flying) {
+            jumpQueuedUntil = 0;
+        }
+        else if (jumpPressed) {
+            jumpQueuedUntil = now + jumpBufferMs;
+        }
+
         const bool* keys = SDL_GetKeyboardState(nullptr);
 
         if (showMap) {
@@ -451,7 +486,46 @@ int main(int argc, char* argv[])
                 if (keys[SDL_SCANCODE_LCTRL]) mapY -= step;
             }
             else {
-                player.update(moveX * 4.0f, moveZ * 4.0f, jumpPressed, deltaTime);
+                const float inputLength = std::sqrt(moveX * moveX + moveZ * moveZ);
+                if (inputLength > 1.0f) {
+                    moveX /= inputLength;
+                    moveZ /= inputLength;
+                }
+
+                const float movementDt = std::min(deltaTime, 0.1f);
+                const bool grounded = player.isGrounded();
+                const bool jumpNow = grounded && movementDt > 0.0f
+                    && now < jumpQueuedUntil;
+                const bool sprinting = grounded && !jumpNow && !exhausted
+                    && forward > 0.0f && keys[SDL_SCANCODE_LSHIFT];
+
+                if (jumpNow) {
+                    jumpQueuedUntil = 0;
+                    stamina = std::max(0.0f, stamina - jumpStaminaCost);
+                    recoveryDelayRemaining = recoveryDelay;
+                    if (stamina <= 0.0f) {
+                        exhausted = true;
+                    }
+                }
+                else if (sprinting) {
+                    stamina = std::max(0.0f, stamina - sprintDrainPerSecond * movementDt);
+                    recoveryDelayRemaining = recoveryDelay;
+                    exhausted = stamina <= 0.0f;
+                }
+                else if (grounded) {
+                    const float recoveryTime =
+                        std::max(0.0f, movementDt - recoveryDelayRemaining);
+                    recoveryDelayRemaining =
+                        std::max(0.0f, recoveryDelayRemaining - movementDt);
+                    stamina = std::min(maxStamina, stamina + staminaRecoveryPerSecond * recoveryTime);
+
+                    if (stamina >= staminaToResume) {
+                        exhausted = false;
+                    }
+                }
+
+                const float speed = sprinting ? sprintSpeed : walkSpeed;
+                player.update(moveX * speed, moveZ * speed, jumpNow, movementDt);
 
                 auto feet = player.feet();
                 mapX = static_cast<float>(feet.x);
@@ -518,12 +592,39 @@ int main(int argc, char* argv[])
             glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, nullptr);
         }
 
+        if (!flying && staminaFrame != 0 && pixelWidth > 0 && pixelHeight > 0) {
+            const float width = std::min(360.0f, pixelWidth * 0.8f);
+            const float height = width * 119.0f / 1000.0f;
+            const float margin = 16.0f;
+
+            glDisable(GL_DEPTH_TEST);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+            glBindVertexArray(vao);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, staminaFrame);
+            glUniform1i(staminaHudLocation, 1);
+            glUniform1f(staminaFractionLocation, stamina / maxStamina);
+            glUniform4f(staminaRectLocation,
+                -1.0f + 2.0f * margin / pixelWidth,
+                -1.0f + 2.0f * (margin + height) / pixelHeight,
+                2.0f * width / pixelWidth,
+                2.0f * height / pixelHeight);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+            glUniform1i(staminaHudLocation, 0);
+            glDisable(GL_BLEND);
+            glEnable(GL_DEPTH_TEST);
+        }
+
         SDL_GL_SwapWindow(window);
     }
 
     //release GPU buffers while the OpenGL context is still active.
     glDeleteVertexArrays(1, &vao);
     glDeleteBuffers(1, &vbo);
+    glDeleteTextures(1, &staminaFrame);
     map.release();
     SDL_GL_DestroyContext(context);
     SDL_DestroyWindow(window);

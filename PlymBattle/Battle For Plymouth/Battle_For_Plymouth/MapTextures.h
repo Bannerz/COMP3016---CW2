@@ -41,29 +41,40 @@ class MapTextures {
         return GL_REPEAT;
     }
 
+    void ensureFactory()
+    {
+        if (!factory) {
+            check(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                IID_PPV_ARGS(factory.GetAddressOf())), "create Windows image decoder");
+        }
+    }
+
     GLuint upload(const aiTexture& image, GLenum wrapS, GLenum wrapT)
     {
         if (image.mHeight != 0 || image.mWidth == 0) {
             throw std::runtime_error("expected a compressed embedded image");
         }
-        if (!factory) {
-            check(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                IID_PPV_ARGS(factory.GetAddressOf())), "create Windows image decoder");
-        }
+
+        ensureFactory();
 
         using Microsoft::WRL::ComPtr;
         ComPtr<IWICStream> stream;
         ComPtr<IWICBitmapDecoder> decoder;
         ComPtr<IWICBitmapFrameDecode> frame;
-        ComPtr<IWICFormatConverter> rgba;
         check(factory->CreateStream(stream.GetAddressOf()), "create image stream");
         check(stream->InitializeFromMemory(reinterpret_cast<BYTE*>(image.pcData),
             image.mWidth), "read embedded image");
         check(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad,
             decoder.GetAddressOf()), "decode embedded image");
         check(decoder->GetFrame(0, frame.GetAddressOf()), "read image frame");
+        return uploadFrame(frame.Get(), wrapS, wrapT);
+    }
+
+    GLuint uploadFrame(IWICBitmapFrameDecode* frame, GLenum wrapS, GLenum wrapT)
+    {
+        Microsoft::WRL::ComPtr<IWICFormatConverter> rgba;
         check(factory->CreateFormatConverter(rgba.GetAddressOf()), "create RGBA converter");
-        check(rgba->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA,
+        check(rgba->Initialize(frame, GUID_WICPixelFormat32bppRGBA,
             WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom),
             "convert image to RGBA");
         UINT width = 0, height = 0;
@@ -123,6 +134,25 @@ class MapTextures {
     }
 
 public:
+
+    GLuint loadPng(const wchar_t* path)
+    {
+        try {
+            ensureFactory();
+
+            Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+            Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+            check(factory->CreateDecoderFromFilename(path, nullptr, GENERIC_READ,
+                WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf()), "open PNG");
+            check(decoder->GetFrame(0, frame.GetAddressOf()), "read PNG frame");
+            return uploadFrame(frame.Get(), GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+        }
+        catch (const std::exception& error) {
+            std::fprintf(stderr, "Stamina texture failed: %s\n", error.what());
+            return 0;
+        }
+    }
+
     MapTextures() = default;
     MapTextures(const MapTextures&) = delete;
     MapTextures& operator=(const MapTextures&) = delete;

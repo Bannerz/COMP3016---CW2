@@ -26,8 +26,18 @@ out vec3 vMapColor;
 uniform bool uMapPreview;
 uniform mat4 uModel;
 
+uniform bool uStaminaHud;
+uniform vec4 uStaminaRect;
+
 void main()
 {
+
+    if (uStaminaHud) {
+        vUV = vec2(float(gl_VertexID / 2), float(gl_VertexID % 2));
+        vec2 position = uStaminaRect.xy + vec2(vUV.x, -vUV.y) * uStaminaRect.zw;
+        gl_Position = vec4(position, 0.0, 1.0);
+        return;
+    }
 
     vMapColor = aMapColor;
 
