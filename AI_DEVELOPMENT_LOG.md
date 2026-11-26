@@ -9,7 +9,7 @@
 
 I set the direction for an explorable map inspired by late medieval Plymouth and asked for a workflow that would let me edit the layout and building designs on my PC. I chose the assets to integrate, identified problems with the houses and approaches, and directed revisions. AI wrote the Blender tools, generated and repaired geometry, placed assets, and ran the checks described below.
 
-The prompt summaries are reconstructed examples of the requests that guided the work. They are representative paraphrases. The starting point for this repository is the editable map and its offline tools. I plan to build the game's C++ code by hand and will record that work as it happens.
+The prompt summaries are reconstructed examples of the requests that guided the work. They are representative paraphrases. The starting point for this repository is the editable map and its offline tools. I wrote the initial C++ renderer and movement code with AI guidance. Later entries record where I asked AI to implement or fix features directly and how the results were checked.
 
 ## Development record
 
@@ -130,7 +130,7 @@ The prompt summaries are reconstructed examples of the requests that guided the 
 
 **AI contribution** — Supplied an example map loader in `MapPreview.h`. It uploads each Assimp mesh once, walks the node hierarchy with the accumulated parent transform, and draws the mesh at each recorded placement. The preview combines vertex colours with material tint. AI guided the change from an overhead view to a perspective fly camera and provided examples for relative mouse motion, pitch limits, keyboard movement and cursor capture. I integrated the examples and tested the scene. At my request, AI later edited comments in the four renderer source files and checked that the executable statements were unchanged.
 
-**Refinement and verification** — I recognised the town in the overhead render and confirmed that the fly camera worked. The current map preview draws individual placements and uses base material and vertex colours. The sword's BMP test is the current evidence for image texturing in the new renderer.
+**Refinement and verification** — I recognised the town in the overhead render and confirmed that the fly camera worked. At this stage, the map preview drew individual placements using material tint and vertex colours. The sword BMP was the first image texture in the new renderer. AI-16 records the later building texture integration.
 
 **References** — `38add94` (overhead map preview), `303e608` (interactive perspective camera) and `1c6d0a6` (rendering comments).
 
@@ -142,7 +142,7 @@ The prompt summaries are reconstructed examples of the requests that guided the 
 
 **AI contribution** — Provided a CPU-only CMake configuration for the vendored PhysX source, help finding the Debug x64 libraries, and example code for a `PlayerPhysics` class and its integration in `main.cpp`. The class reads the exported height samples, arranges them for PhysX and builds a heightfield. A capsule controller handles movement. The code applies gravity, uses collision flags to determine ground contact, and gives the capsule an upward velocity on a new Space press while grounded. I added the class and build setup, wired the controls, and ran the game. F2 switches from the fly camera to following the capsule's feet plus eye height. Mouse look is shared by both modes.
 
-**Refinement and verification** — I reported that the new movement worked. AI inspected the checked-in source, confirmed that it reads `terrain.bin`, and verified that the exported terrain is a 600 × 600 grid. Building, tree and other obstacle collision from `colliders.bin` and `interiors.bin` remains a later task for this version. The doorway and stair audits recorded above relate to the earlier prototype.
+**Refinement and verification** — I reported that the new movement worked. AI inspected the checked-in source, confirmed that it reads `terrain.bin`, and verified that the exported terrain is a 600 × 600 grid. This stage handled terrain collision. AI-13 records the later integration of `colliders.bin` and `interiors.bin`. The earlier doorway and stair audits relate to the prototype.
 
 **References** — `c8da488` (PhysX terrain walking controls), `PlayerPhysics.h`, and `PlymBattle/Battle For Plymouth/physics/CMakeLists.txt`.
 
@@ -157,3 +157,51 @@ The prompt summaries are reconstructed examples of the requests that guided the 
 **Refinement and verification** — AI checked that no LFS pointers remained on the amended main branch and that the ignore rule matched. I handled the publish step in GitHub Desktop. Later repository inspection showed `main` tracking `origin/main`.
 
 **References** — `e422c6b` and [.gitignore](.gitignore).
+
+### AI-13 — Static world and building collision (26 November 2026)
+
+**Objective** — Use the exported collision geometry to walk around walls, enter buildings and use their interiors.
+
+**Representative prompt** — Help me load the static map colliders into PhysX, diagnose why the capsule gets stuck when landing on the boundary wall by the farm gate and add building interiors.
+
+**AI contribution** — Provided guidance and C++ examples for loading box colliders and cooking the exported triangle meshes. I integrated the collider loading into the walking controller and tried the changes in-game. After I identified the wall by the signed Brookfield gate, AI traced the remaining failure to inward-facing collision triangles. AI corrected the triangle winding for farm enclosure segments and dry-stone field walls in the exporter and regenerated the collision data. For interiors, AI provided code and guidance to cook each shared template mesh once and create static PhysX actors with the exporter’s placement, rotation and scale. The exported shared geometry leaves openings for the separate door leaves.
+
+**Refinement and verification** — An isolated PhysX check verified that the capsule could land on and walk off both tested sections of the Brookfield enclosure. I tested the building collision in-game and reported that it worked. The current export contains 8,115 box colliders, 1,196,042 static collision triangles and 899 interior instances built from six shared meshes.
+
+**References** — [World exporter](Plymouth_Editor/scripts/export_world.py), [map assembly](Plymouth_Editor/scripts/assemble_map.py), [PlayerPhysics.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/PlayerPhysics.h>).
+
+### AI-14 — Blender export progress (26 November 2026)
+
+**Objective** — Show that the background map export is still running and indicate its current stage.
+
+**Representative prompt** — Add a progress bar to the Blender map editor so I can see where a long export has reached.
+
+**AI contribution** — Added progress updates for the background Blender process and a sidebar timer that reads them. The bar shows an approximate percentage and current stage, including template loading, collision export, render mesh preparation and GLB writing. The editor displays completion when the child process exits successfully and points to the export log on failure.
+
+**Refinement and verification** — I re-exported the map during the wall collision investigation. The export progress comes from stage updates and template counts. The GLB writer reports its stage as a single operation.
+
+**References** — [Editor sidebar](Plymouth_Editor/scripts/editor_ui.py), [progress reporting](Plymouth_Editor/scripts/export_progress.py), [world exporter](Plymouth_Editor/scripts/export_world.py).
+
+### AI-15 — Interactive doors (26 November 2026)
+
+**Objective** — Let the player open and close building doors while keeping the visible leaves and their collision aligned.
+
+**Representative prompt** — Walk me through a single working door first. Check my integration, then use the exported metadata to enable the same interaction across the map.
+
+**AI contribution** — Provided hinge rotation and collider code for the Brookfield farmhouse door. I added the first version and asked AI to check where I had placed the code. AI moved the callable methods into the public section of `PlayerPhysics` and added collider cleanup. After I confirmed the test door worked, AI implemented the map-wide version. It reads hinge, closed pose, collider size, swing angle and group ID from `world.json`, matches each leaf to its Assimp node, and creates a kinematic box collider. In walk mode, E toggles the nearest doorway in reach. The code checks for a player overlap on every leaf before moving the colliders and applying the same hinge rotation to the render meshes.
+
+**Refinement and verification** — I confirmed the single-door implementation in-game. The map-wide Debug build succeeded. An automated test loaded all 949 doorways and 964 leaves from the current export. It verified the Brookfield threshold, a rotated door and a two-leaf door, including both leaves staying open when one is obstructed. AI did not exercise the map-wide E key input in the game window during that test.
+
+**References** — [MapDoors.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/MapDoors.h>), [MapPreview.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/MapPreview.h>), [PlayerPhysics.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/PlayerPhysics.h>), [door metadata exporter](Plymouth_Editor/scripts/door_metadata.py).
+
+### AI-16 — Building base-colour textures (26 November 2026)
+
+**Objective** — Show the authored building materials in the OpenGL game and add surface detail to older meshes without UVs.
+
+**Representative prompt** — Make the buildings use their exported image textures in-game and give the remaining foundations, steps and similar surfaces a matching finish.
+
+**AI contribution** — AI inspected the existing GLB and found that the exporter already preserved the architectural images and UVs. AI adapted the earlier prototype’s Windows Imaging Component decoder for the current renderer, wired Assimp’s base-colour references and UVs into the mesh upload, and reused the decoded OpenGL textures across placements. The fragment shader samples the authored textures in linear colour and converts the lit result for display. Selected materials without UVs use shared images projected in world space or a shader pattern for cloth and thatch. The work reused the existing GLB and its packed images. This implementation covers base colour. Normal maps and roughness are still pending.
+
+**Refinement and verification** — The Debug build succeeded. A hidden OpenGL 4.1 test loaded 38 GPU textures, reported 3,097 UV-textured meshes and 3,345 meshes with fallback surface detail, and rendered the same Brookfield view with texturing enabled and disabled. AI inspected the comparison images and checked that OpenGL reported no errors after rendering and cleanup.
+
+**References** — [MapTextures.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/MapTextures.h>), [MapPreview.h](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/MapPreview.h>), [vertex shader](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/basic.vert>), [fragment shader](<PlymBattle/Battle For Plymouth/Battle_For_Plymouth/basic.frag>).

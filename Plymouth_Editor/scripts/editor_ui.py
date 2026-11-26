@@ -1,5 +1,5 @@
 """Session-only Blender sidebar. Launch through Open_Map_Editor.cmd."""
-import bpy,os,sys,json,subprocess
+import bpy,os,sys,json,subprocess,uuid
 from mathutils import Matrix,Quaternion
 HERE=os.path.dirname(os.path.abspath(__file__));ROOT=os.path.dirname(HERE);sys.path.insert(0,HERE)
 from editor_common import terrain_height,relative_matrix
@@ -69,25 +69,85 @@ class PLY_OT_points(bpy.types.Operator):
   if was_edit:bpy.ops.object.mode_set(mode='EDIT')
   return {'FINISHED'}
  def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self)
+# This state belongs to the Blender session and is never saved into the map.
+_export = {"process": None, "percent": 0, "message": ""}
+
+
+def redraw_sidebar():
+ for window in bpy.context.window_manager.windows:
+  for area in window.screen.areas:
+   if area.type == 'VIEW_3D':
+    area.tag_redraw()
+
+
+def poll_export():
+ process = _export["process"]
+ try:
+  with open(_export["progress_path"], encoding="utf-8") as progress_file:
+   status = json.load(progress_file)
+  _export["percent"] = max(_export["percent"], min(99, status["percent"]))
+  _export["message"] = status["message"]
+ except (OSError, ValueError, KeyError):
+  # The background Blender process may not have written its first update yet.
+  pass
+
+ result = process.poll()
+ if result is None:
+  redraw_sidebar()
+  return 0.4
+
+ try:
+  os.remove(_export["progress_path"])
+ except OSError:
+  pass
+ _export["process"] = None
+ if result == 0:
+  _export["percent"] = 100
+  _export["message"] = "Export complete. See the export folder."
+ else:
+  _export["message"] = "Export failed. See export/export.log."
+ redraw_sidebar()
+ return None
+
+
 class PLY_OT_build(bpy.types.Operator):
- bl_idname='plymouth.build';bl_label='Save layout and Export Map';bl_description='Export the map, doors and collision from saved templates'
- def execute(self,context):
-  if not context.scene.get('editor_schema'):self.report({'ERROR'},'Build from the map layout window after saving this template');return {'CANCELLED'}
-  if context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
-  clear_previews();bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath,compress=True)
-  output=os.path.join(ROOT,'export')
-  os.makedirs(output,exist_ok=True)
-  log=open(os.path.join(output,'export.log'),'w')
-  process=subprocess.Popen([bpy.app.binary_path,'--background',bpy.data.filepath,'--python-exit-code','1','--python',os.path.join(HERE,'assemble_map.py'),'--','--output',output],stdout=log,stderr=subprocess.STDOUT,creationflags=subprocess.CREATE_NO_WINDOW)
-  context.scene['editor_build_status']='Exporting. See export/export.log.'
-  scene=context.scene
-  def poll():
-   if process.poll() is None:return 2.
-   log.close();scene['editor_build_status']='Export complete. See export folder.' if process.returncode==0 else 'Export failed. See export/export.log.'
-   for window in bpy.context.window_manager.windows:
-    for area in window.screen.areas:area.tag_redraw()
-   return None
-  bpy.app.timers.register(poll,first_interval=2.);return {'FINISHED'}
+ bl_idname = 'plymouth.build'
+ bl_label = 'Save layout and Export Map'
+ bl_description = 'Export the map, doors and collision from saved templates'
+
+ @classmethod
+ def poll(cls, context):
+  return bool(context.scene and context.scene.get('editor_schema')) and _export["process"] is None
+
+ def execute(self, context):
+  if context.mode != 'OBJECT':
+   bpy.ops.object.mode_set(mode='OBJECT')
+  clear_previews()
+  bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath, compress=True)
+  output = os.path.join(ROOT, 'export')
+  os.makedirs(output, exist_ok=True)
+  progress_path = os.path.join(output, f'.progress-{uuid.uuid4().hex}.json')
+  environment = os.environ.copy()
+  environment['PLYMOUTH_EXPORT_PROGRESS'] = progress_path
+  command = [
+      bpy.app.binary_path, '--background', bpy.data.filepath, '--python-exit-code', '1',
+      '--python', os.path.join(HERE, 'assemble_map.py'), '--', '--output', output,
+  ]
+  try:
+   with open(os.path.join(output, 'export.log'), 'w') as log:
+    process = subprocess.Popen(command, env=environment, stdout=log,
+        stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
+  except OSError as error:
+   self.report({'ERROR'}, f'Could not start export: {error}')
+   return {'CANCELLED'}
+
+  _export.update(process=process, progress_path=progress_path, percent=1,
+                 message="Starting background Blender")
+  bpy.app.timers.register(poll_export, first_interval=0.4, persistent=True)
+  redraw_sidebar()
+  return {'FINISHED'}
+
+
 class PLY_PT_editor(bpy.types.Panel):
  bl_label='Plymouth Map and Templates';bl_idname='PLY_PT_editor';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Plymouth'
  def draw(self,context):
@@ -98,7 +158,12 @@ class PLY_PT_editor(bpy.types.Panel):
    ui.operator('plymouth.open_template');ui.operator('plymouth.preview');ui.operator('plymouth.clear_preview');ui.operator('plymouth.snap');ui.separator()
    ui.label(text='Trees: Tab, select points, G / Shift D / X')
    ui.operator('plymouth.adjust_points');ui.separator();ui.operator('plymouth.build')
-   ui.label(text=context.scene.get('editor_build_status','Export after saving all template windows.'))
+   if _export["process"] is not None:
+    percent = _export["percent"]
+    ui.progress(factor=percent / 100.0, type='BAR', text=f'About {percent}%')
+    ui.label(text=_export["message"])
+   else:
+    ui.label(text=_export["message"] or 'Export after saving all template windows.')
   else:
    ui.label(text='Edit the ASSET collection; keep ASSET_ROOT.')
    ui.label(text='Door origin is its hinge. Keep door objects.')

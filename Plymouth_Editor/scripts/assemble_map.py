@@ -5,10 +5,12 @@ import bpy,os,sys,json,argparse,hashlib,runpy,collections
 from mathutils import Matrix,Vector,Euler
 HERE=os.path.dirname(os.path.abspath(__file__));sys.path.insert(0,HERE)
 from editor_common import *
+from export_progress import report_progress
 parser=argparse.ArgumentParser();parser.add_argument('--output',required=True);parser.add_argument('--inspect-only',action='store_true');parser.add_argument('--physics-only',action='store_true');parser.add_argument('--catalog')
 args=parser.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
 ROOT=os.path.dirname(HERE);output=os.path.abspath(args.output);os.makedirs(output,exist_ok=True)
 catalog_path=os.path.abspath(args.catalog or os.path.join(ROOT,'catalog.json'));catalog=json.load(open(catalog_path));base=os.path.dirname(catalog_path)
+report_progress(3, 'Reading layout and placements')
 layout=bpy.context.scene
 assert layout.get('editor_schema')==1,'Open Map_Layout.blend, not the legacy detailed scene'
 terrain=next(o for o in layout.objects if o.get('editor_terrain'))
@@ -79,6 +81,7 @@ def append_scene(path,asset_key=None):
   assert matches,'ASSET_ROOT is missing in '+path
   return matches[0]
  return next((s for s in dst.scenes if any(o.get('editor_source_name') for o in s.objects)),dst.scenes[0])
+report_progress(8, 'Loading the detailed environment')
 environment=append_scene(os.path.join(base,catalog['environment_file']))
 for source in environment.objects:
  name=source.get('editor_source_name',source.name);support=source.get('editor_support_owner');original_matrix=source.matrix_world.copy()
@@ -99,7 +102,10 @@ for source in environment.objects:
  # Foundations already inherit the placement's height adjustment.
  if not support and not any(s in name.lower() for s in ['water |','ebb water']):deform(ob)
 templates={};template_report={}
-for key in sorted({r['template'] for r in records}):
+template_keys = sorted({record['template'] for record in records})
+for template_number, key in enumerate(template_keys, 1):
+ report_progress(12 + 24 * (template_number - 1) / len(template_keys),
+                 f'Loading template {template_number}/{len(template_keys)}')
  entry=catalog['assets'][key];path=os.path.join(base,entry['file']);asset_scene=append_scene(path,key);bpy.context.window.scene=asset_scene;asset_scene.view_layers[0].update();graph=bpy.context.evaluated_depsgraph_get()
  col=next((c for c in asset_scene.collection.children_recursive if c.name==entry['collection'] or c.name.startswith(entry['collection']+'.')),None)
  assert col,'Keep the ASSET collection in '+path
@@ -124,6 +130,7 @@ for key in sorted({r['template'] for r in records}):
  templates[key]={'entry':entry,'parts':parts,'collision':collision,'root_props':props(root),'path':path,'bounds':bounds}
  template_report[key]={'instances':sum(r['template']==key for r in records),'parts':len(parts),'vertices':sum(len(p['mesh'].vertices) for p in parts),'sha256':hashlib.sha256(open(path,'rb').read()).hexdigest(),'collision_vertices':len(collision.vertices) if collision else 0}
  print('ASSEMBLE_TEMPLATE',key,template_report[key]['instances'],flush=True)
+report_progress(36, 'Placing meshes in the map')
 bpy.context.window.scene=world;placed=collection('Template placements');owners=[];report_placements=[]
 for ob in world.objects:
  if not ob.get('editor_support_owner'):continue
@@ -163,6 +170,7 @@ world.view_layers[0].update()
 def fine_height(x,y):
  u=max(0,min(598.999,(x+1499.5)/5));v=max(0,min(598.999,(1499.5-y)/5));i=int(u);j=int(v);a=u-i;b=v-j;vs=fine_terrain.data.vertices
  return vs[j*600+i].co.z*(1-a)*(1-b)+vs[j*600+i+1].co.z*a*(1-b)+vs[(j+1)*600+i].co.z*(1-a)*b+vs[(j+1)*600+i+1].co.z*a*b
+report_progress(46, 'Preparing doors and stonework')
 verts,faces,groups=annotate_doors(world,owners,fine_height)
 from masonry import palette,clad_foundations,entry_steps
 palettes={None:palette(templates['House_Gabled_Artisan_House'])}
@@ -174,7 +182,9 @@ report={'schema':1,'layout':bpy.data.filepath,'templates':template_report,'place
 report['masonry']=masonry_report
 json.dump(report,open(os.path.join(output,'editor_build.json'),'w'),indent=2)
 print('ASSEMBLY_COMPLETE',len(records),'placements',len(owners),'doors',groups,'entries',flush=True)
-if not args.inspect_only:
+if args.inspect_only:
+ report_progress(99, 'Assembly inspection complete')
+else:
  os.environ['PLYMOUTH_EXPORT_DIR']=output
  if args.physics_only:os.environ['PLYMOUTH_PHYSICS_ONLY']='1'
  runpy.run_path(os.path.join(HERE,'export_world.py'),run_name='__main__')

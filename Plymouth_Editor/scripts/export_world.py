@@ -1,6 +1,9 @@
 """Export the visible Blender world, preserving shared meshes and vertex colours."""
 import bpy,os,json,math,struct,numpy as np,random,wave
 from mathutils import Vector,Matrix
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from export_progress import report_progress
 ROOT=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS=os.path.abspath(os.environ.get('PLYMOUTH_EXPORT_DIR',os.path.join(ROOT,'assets')));os.makedirs(ASSETS,exist_ok=True)
 scene=bpy.context.scene
@@ -17,6 +20,7 @@ def h(x,y):
  u=max(0,min(598.999,(x+1499.5)/5));v=max(0,min(598.999,(1499.5-y)/5));i=int(u);j=int(v);a=u-i;b=v-j
  z=coords[:,:,2];return float(z[j,i]*(1-a)*(1-b)+z[j,i+1]*a*(1-b)+z[j+1,i]*(1-a)*b+z[j+1,i+1]*a*b)
 # Engine coordinates: X east, Y up, Z south. Blender (x,y,z)->(x,z,-y).
+report_progress(55, 'Writing terrain and static collision')
 with open(os.path.join(ASSETS,'terrain.bin'),'wb') as f:
  f.write(struct.pack('<IIffff',600,600,-1499.5,-1499.5,5.,5.))
  f.write(coords[:,:,2].astype('<f4').tobytes())
@@ -58,14 +62,28 @@ with open(os.path.join(ASSETS,'colliders.bin'),'wb') as f:
  # The source uses world-space meshes except instances, so apply transforms explicitly.
  tris=[]
  for o in tri_objects:
-  me=o.data;me.calc_loop_triangles()
+  me = o.data
+  me.calc_loop_triangles()
+  # The field walls and farm enclosures share the same inward-facing source mesh.
+  reverse_winding = (
+      o.name.startswith('Dry stone field wall')
+      or any(part in o.name for part in (
+          'west and north enclosure',
+          'southern enclosure left',
+          'southern enclosure right',
+      ))
+  )
   for tr in me.loop_triangles:
-   for k in tr.vertices:
-    p=o.matrix_world@me.vertices[k].co;tris.extend((p.x,p.z,-p.y))
+   a, b, c = tr.vertices
+   order = (a, c, b) if reverse_winding else (a, b, c)
+   for k in order:
+    p = o.matrix_world @ me.vertices[k].co
+    tris.extend((p.x, p.z, -p.y))
  f.write(struct.pack('<I',len(tris)//9));f.write(np.array(tris,dtype='<f4').tobytes())
 
 # Interior collision meshes are cooked once per prototype and instanced by PhysX.
 # This avoids flattening hundreds of identical houses into millions of triangles.
+report_progress(64, 'Writing interiors and door collision')
 C=Matrix(((1,0,0,0),(0,0,1,0),(0,-1,0,0),(0,0,0,1)));Ci=C.inverted()
 interior_groups={}
 for o in scene.objects:
@@ -83,8 +101,6 @@ with open(os.path.join(ASSETS,'interiors.bin'),'wb') as f:
   for ob in group:
    m=C@ob.matrix_world@Ci;position,rotation,scale=m.decompose()
    f.write(struct.pack('<10f',*position,rotation.x,rotation.y,rotation.z,rotation.w,*scale))
-import sys
-sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 from door_metadata import build_door_manifest
 door_manifest=build_door_manifest(objects)
 print('ENTRY_EXPORT',interior_stats,'doors',len(door_manifest),flush=True)
@@ -103,7 +119,11 @@ def export_graphics():
    pixels=np.empty(len(image.pixels),np.float32);image.pixels.foreach_get(pixels)
    texture_cache[image.name]=pixels.reshape(image.size[1],image.size[0],4)
   return texture_cache[image.name]
- for name,group in replacement_groups.items():
+ report_progress(68, 'Preparing render meshes')
+ for mesh_number, (name,group) in enumerate(replacement_groups.items(), 1):
+  if mesh_number == 1 or mesh_number % 10 == 0:
+   report_progress(68 + 16 * (mesh_number - 1) / len(replacement_groups),
+                   f'Preparing render mesh {mesh_number}/{len(replacement_groups)}')
   source=group[0];role=source.get('asset_role','house');mesh=source.data.copy()
   temp=bpy.data.objects.new('EXPORT_TEMP',mesh);scene.collection.objects.link(temp)
   mesh.calc_loop_triangles();before=len(mesh.loop_triangles)
@@ -188,9 +208,12 @@ def export_graphics():
  for o in objects:
   if o.type=='MESH' and not any(m in image_materials for m in o.data.materials):
    for layer in list(o.data.uv_layers):o.data.uv_layers.remove(layer)
+ report_progress(85, 'Writing world.glb. This can take a while.')
  bpy.ops.export_scene.gltf(filepath=filepath,export_format='GLB',use_selection=True,use_active_scene=True,export_yup=True,export_apply=False,export_texcoords=True,export_normals=True,export_materials='EXPORT',export_cameras=False,export_lights=False,export_animations=False)
 
 if not os.environ.get("PLYMOUTH_PHYSICS_ONLY"):export_graphics()
+
+report_progress(97, 'Writing metadata and audio')
 
 def loc(x,y):return [x,h(x,y)+1.75,-y]
 manifest={'title':'Plymouth: A Medieval Wander','artistic':True,'spawn':loc(-560,190),

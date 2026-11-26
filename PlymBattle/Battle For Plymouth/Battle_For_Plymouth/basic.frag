@@ -10,26 +10,75 @@ uniform bool uUseTexture;
 in vec3 vMapColor;
 uniform bool uMapPreview;
 uniform vec3 uMapTint;
+uniform int uMapTextureMode;
+
+const int UV_TEXTURE = 1;
+const int PROJECTED_TEXTURE = 2;
+const int CANVAS = 3;
+const int THATCH = 4;
+
+// OpenGL decodes sRGB albedo samples to linear. Convert the lit result for the display.
+vec3 displayColor(vec3 linearColor)
+{
+    vec3 c = clamp(linearColor, 0.0, 1.0);
+    return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, 12.92 * c,
+               lessThanEqual(c, vec3(0.0031308)));
+}
+
+float projectedDetail(vec3 normal)
+{
+    // Blend three planar samples so unwrapped walls, steps and roofs have no
+    // stretched sides. World coordinates keep the pattern the same size across assets.
+    vec3 p = vPosition * 0.65;
+    vec3 weights = pow(abs(normal), vec3(6.0));
+    weights /= max(dot(weights, vec3(1.0)), 0.0001);
+    vec3 color = texture(uBaseColor, p.zy).rgb * weights.x
+               + texture(uBaseColor, p.xz).rgb * weights.y
+               + texture(uBaseColor, p.xy).rgb * weights.z;
+    float lightness = sqrt(dot(color, vec3(0.2126, 0.7152, 0.0722)));
+    return 0.62 + 0.76 * lightness;
+}
+
+float fibreDetail(vec3 normal, bool thatch)
+{
+    vec2 p = abs(normal.y) > 0.65 ? vPosition.xz :
+        (abs(normal.x) > abs(normal.z) ? vPosition.zy : vPosition.xy);
+    vec2 frequency = thatch ? vec2(145.0, 18.0) : vec2(125.0);
+    // Fade out threads once they are too small to resolve at this distance.
+    vec2 visible = 1.0 - smoothstep(vec2(1.0), vec2(3.14), fwidth(p) * frequency);
+    float weft = sin(p.y * frequency.y);
+    float warp = sin(p.x * frequency.x + (thatch ? weft * 0.45 : 0.0));
+    return 1.0 + warp * visible.x * 0.13 + weft * visible.y * 0.06;
+}
 
 void main()
 {
-    //cross the position gradients to estimate a flat surface normal.
+    // Cross the position gradients to estimate a flat surface normal.
     vec3 normal = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
     vec3 lightDirection = normalize(vec3(-0.5, 0.7, 1.0));
-
     float sunlight = max(dot(normal, lightDirection), 0.0);
-    //leave some ambient brightness on surfaces facing away from the light.
     float brightness = 0.35 + 0.65 * sunlight;
 
-    //the sword samples its UV texture when available. Orange is the fallback.
-    vec3 baseColor = uUseTexture
-        ? texture(uBaseColor, vUV).rgb
-        : vec3(1.0, 0.55, 0.15);
-
-    //map mode uses vertex colours multiplied by the material tint.
     if (uMapPreview) {
-        baseColor = vMapColor * uMapTint;
+        vec3 tint = vMapColor * uMapTint;
+        if (uMapTextureMode == UV_TEXTURE) {
+            vec3 albedo = texture(uBaseColor, vUV).rgb * tint;
+            fragColor = vec4(displayColor(albedo * brightness), 1.0);
+            return;
+        }
+
+        float detail = 1.0;
+        if (uMapTextureMode == PROJECTED_TEXTURE) {
+            detail = projectedDetail(normal);
+        }
+        else if (uMapTextureMode == CANVAS || uMapTextureMode == THATCH) {
+            detail = fibreDetail(normal, uMapTextureMode == THATCH);
+        }
+        fragColor = vec4(tint * brightness * detail, 1.0);
+        return;
     }
 
+    // The sword preview uses its own BMP and orange fallback.
+    vec3 baseColor = uUseTexture ? texture(uBaseColor, vUV).rgb : vec3(1.0, 0.55, 0.15);
     fragColor = vec4(baseColor * brightness, 1.0);
 }

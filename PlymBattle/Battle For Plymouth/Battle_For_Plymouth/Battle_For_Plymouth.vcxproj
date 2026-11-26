@@ -133,7 +133,9 @@
     <None Include="basic.vert" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="MapDoors.h" />
     <ClInclude Include="MapPreview.h" />
+    <ClInclude Include="MapTextures.h" />
     <ClInclude Include="PlayerPhysics.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

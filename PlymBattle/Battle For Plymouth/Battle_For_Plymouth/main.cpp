@@ -21,6 +21,7 @@
 
 #include "MapPreview.h"
 #include "PlayerPhysics.h"
+#include "MapDoors.h"
 
 #pragma comment(lib, "opengl32.lib")
 
@@ -300,6 +301,7 @@ int main(int argc, char* argv[])
 
     GLint baseColorLocation = glGetUniformLocation(shaderProgram, "uBaseColor");
     GLint useTextureLocation = glGetUniformLocation(shaderProgram, "uUseTexture");
+    GLint mapTextureModeLocation = glGetUniformLocation(shaderProgram, "uMapTextureMode");
 
     //the map owns separate mesh buffers and a list of where to draw each mesh.
     MapPreview map;
@@ -340,8 +342,17 @@ int main(int argc, char* argv[])
     } */
 
     PlayerPhysics player;
-    bool canWalk = showMap &&
-        player.start("../../../Plymouth_Editor/export/terrain.bin");
+    bool canWalk = showMap && player.start(
+        "../../../Plymouth_Editor/export/terrain.bin",
+        "../../../Plymouth_Editor/export/colliders.bin",
+        "../../../Plymouth_Editor/export/interiors.bin"
+    );
+
+    // Declare doors after player so their colliders are released before the PhysX scene.
+    MapDoors doors;
+    if (canWalk) {
+        doors.load("../../../Plymouth_Editor/export/world.json", map, player);
+    }
 
     if (showMap && !canWalk) {
         std::fprintf(stderr, "Player physics failed to start. Fly mode is available.\n");
@@ -392,6 +403,10 @@ int main(int argc, char* argv[])
                     }
                     if (event.key.scancode == SDL_SCANCODE_SPACE && !flying) {
                         jumpPressed = true;
+                    }
+
+                    if (event.key.scancode == SDL_SCANCODE_E && !flying) {
+                        doors.toggleNearest(map, player);
                     }
                 }
             }
@@ -497,7 +512,7 @@ int main(int argc, char* argv[])
             glUniform3f(mapEyeLocation, mapX, mapY, mapZ);
             glUniform1f(mapYawLocation, mapYaw);
             glUniform1f(mapPitchLocation, mapPitch);
-            map.draw(modelLocation, mapTintLocation);
+            map.draw(modelLocation, mapTintLocation, mapTextureModeLocation);
         }
         else {
             glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, nullptr);

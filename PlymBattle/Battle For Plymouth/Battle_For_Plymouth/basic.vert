@@ -36,7 +36,7 @@ void main()
         vec3 world = (uModel * vec4(aPosition, 1.0)).xyz;
 
         vPosition = world;
-        vUV = vec2(0.0);
+        vUV = aUV;
 
        vec3 offset = world - uMapEye;
 

@@ -5,6 +5,10 @@
 #include <cmath>
 #include <fstream>
 #include <vector>
+#include <cstdio>
+
+#include <cstring>
+#include <memory>
 
 class PlayerPhysics {
     physx::PxDefaultAllocator allocator;
@@ -16,6 +20,9 @@ class PlayerPhysics {
     physx::PxScene* scene = nullptr;
     physx::PxMaterial* material = nullptr;
     physx::PxRigidStatic* ground = nullptr;
+    physx::PxRigidStatic* triangleActor = nullptr;
+    std::vector<physx::PxRigidStatic*> boxActors;
+    std::vector<physx::PxRigidStatic*> interiorActors;
     physx::PxControllerManager* manager = nullptr;
     physx::PxController* controller = nullptr;
 
@@ -23,12 +30,282 @@ class PlayerPhysics {
     bool grounded = false;
     float verticalSpeed = 0.0f;
 
+    bool loadTriangleCollider(std::ifstream& file)
+    {
+        using namespace physx;
+
+        PxU32 triangleCount = 0;
+        if (!file.read(reinterpret_cast<char*>(&triangleCount),
+            sizeof(triangleCount)) || triangleCount > 5000000) {
+            std::fprintf(stderr, "Invalid collision triangle count\n");
+            return false;
+        }
+        if (triangleCount == 0) return true;
+
+        std::printf("Cooking %u collision triangles...\n", triangleCount);
+
+        // Each triangle has three XYZ positions stored consecutively.
+        static_assert(sizeof(PxVec3) == 3 * sizeof(float),
+            "The exported collision points are packed XYZ floats");
+
+        const PxU32 pointCount = triangleCount * 3;
+        std::vector<PxVec3> points(pointCount);
+        if (!file.read(reinterpret_cast<char*>(points.data()),
+            points.size() * sizeof(PxVec3))) {
+            std::fprintf(stderr, "Collision triangle data is incomplete\n");
+            return false;
+        }
+
+        // Points 0, 1, 2 form the first triangle, 3, 4, 5 the second, and so on.
+        std::vector<PxU32> indices(pointCount);
+        for (PxU32 i = 0; i < pointCount; ++i) {
+            indices[i] = i;
+        }
+
+        PxTriangleMeshDesc meshDesc;
+        meshDesc.points.count = pointCount;
+        meshDesc.points.stride = sizeof(PxVec3);
+        meshDesc.points.data = points.data();
+        meshDesc.triangles.count = triangleCount;
+        meshDesc.triangles.stride = 3 * sizeof(PxU32);
+        meshDesc.triangles.data = indices.data();
+
+        PxCookingParams cooking(physics->getTolerancesScale());
+
+        // Join collision vertices that are within 1 mm of each other.
+        cooking.meshWeldTolerance = 0.001f;
+        cooking.meshPreprocessParams |= PxMeshPreprocessingFlag::eWELD_VERTICES;
+
+        PxTriangleMesh* mesh = PxCreateTriangleMesh(
+            cooking, meshDesc, physics->getPhysicsInsertionCallback());
+        if (!mesh) {
+            std::fprintf(stderr, "PhysX could not cook the collision mesh\n");
+            return false;
+        }
+
+        // The vertices are already in world space, so the actor needs no offset.
+        triangleActor = PxCreateStatic(
+            *physics,
+            PxTransform(PxIdentity),
+            PxTriangleMeshGeometry(
+                mesh, PxMeshScale(), PxMeshGeometryFlag::eDOUBLE_SIDED),
+            *material
+        );
+        mesh->release();
+
+        if (!triangleActor) {
+            std::fprintf(stderr, "Could not create the static triangle actor\n");
+            return false;
+        }
+
+        scene->addActor(*triangleActor);
+        std::printf("Loaded %u static collision triangles\n", triangleCount);
+        return true;
+    }
+
+    bool loadBoxColliders(const char* path)
+    {
+        using namespace physx;
+
+        std::ifstream file(path, std::ios::binary);
+
+        PxU32 count = 0;
+        if (!file.read(reinterpret_cast<char*>(&count), sizeof(count)) ||
+            count > 100000) {
+            std::fprintf(stderr, "Could not read collision boxes from %s\n", path);
+            return false;
+        }
+
+        boxActors.reserve(count);
+
+        for (PxU32 i = 0; i < count; ++i) {
+            // The file stores centre X, Y, Z, then three half-extents.
+            float box[6]{};
+            if (!file.read(reinterpret_cast<char*>(box), sizeof(box))) {
+                std::fprintf(stderr, "Collision file ended at box %u\n", i);
+                return false;
+            }
+
+            PxVec3 centre(box[0], box[1], box[2]);
+            PxBoxGeometry shape(box[3], box[4], box[5]);
+
+            if (!centre.isFinite() || !shape.isValid()) {
+                std::fprintf(stderr, "Invalid collision box %u\n", i);
+                return false;
+            }
+
+            PxRigidStatic* actor =
+                PxCreateStatic(*physics, PxTransform(centre), shape, *material);
+
+            if (!actor) {
+                std::fprintf(stderr, "Could not create collision box %u\n", i);
+                return false;
+            }
+
+            boxActors.push_back(actor);
+            scene->addActor(*actor);
+        }
+
+        std::printf("Loaded %u static collision boxes\n", count);
+        return loadTriangleCollider(file);
+    }
+
+
+    bool loadInteriorColliders(const char* path)
+    {
+        using namespace physx;
+
+        std::ifstream file(path, std::ios::binary);
+        auto read = [&file](auto& value) {
+            return bool(file.read(reinterpret_cast<char*>(&value), sizeof(value)));
+            };
+
+        char magic[4]{};
+        PxU32 version = 0;
+        PxU32 meshCount = 0;
+
+        if (!read(magic) || std::memcmp(magic, "PLYI", 4) != 0 ||
+            !read(version) || version != 1 ||
+            !read(meshCount) || meshCount > 1000) {
+            std::fprintf(stderr, "Invalid building collision file: %s\n", path);
+            return false;
+        }
+
+        static_assert(sizeof(PxVec3) == 3 * sizeof(float),
+            "Building vertices are packed XYZ floats");
+
+        PxCookingParams cooking(physics->getTolerancesScale());
+        cooking.meshWeldTolerance = 0.001f;
+        cooking.meshPreprocessParams |= PxMeshPreprocessingFlag::eWELD_VERTICES;
+
+        for (PxU32 i = 0; i < meshCount; ++i) {
+            PxU32 vertexCount = 0;
+            PxU32 triangleCount = 0;
+
+            if (!read(vertexCount) || !read(triangleCount) ||
+                vertexCount == 0 || vertexCount > 2000000 ||
+                triangleCount == 0 || triangleCount > 2000000) {
+                return false;
+            }
+
+            std::vector<PxVec3> vertices(vertexCount);
+            std::vector<PxU32> indices(triangleCount * 3);
+
+            if (!file.read(reinterpret_cast<char*>(vertices.data()),
+                vertices.size() * sizeof(PxVec3)) ||
+                !file.read(reinterpret_cast<char*>(indices.data()),
+                    indices.size() * sizeof(PxU32))) {
+                return false;
+            }
+
+            PxTriangleMeshDesc desc;
+            desc.points.count = vertexCount;
+            desc.points.stride = sizeof(PxVec3);
+            desc.points.data = vertices.data();
+            desc.triangles.count = triangleCount;
+            desc.triangles.stride = 3 * sizeof(PxU32);
+            desc.triangles.data = indices.data();
+
+            // Release our reference after creating the actors for this mesh.
+            // Their collision shapes keep the mesh alive.
+            auto releaseMesh = [](PxTriangleMesh* mesh) { mesh->release(); };
+            std::unique_ptr<PxTriangleMesh, decltype(releaseMesh)> mesh(
+                PxCreateTriangleMesh(cooking, desc,
+                    physics->getPhysicsInsertionCallback()),
+                releaseMesh);
+            if (!mesh) {
+                std::fprintf(stderr, "Could not cook building mesh %u\n", i);
+                return false;
+            }
+
+            PxU32 instanceCount = 0;
+            if (!read(instanceCount) || instanceCount > 10000) return false;
+
+            for (PxU32 j = 0; j < instanceCount; ++j) {
+                // Position XYZ, quaternion XYZW, then scale XYZ.
+                float t[10]{};
+                if (!read(t)) return false;
+
+                PxVec3 position(t[0], t[1], t[2]);
+                PxQuat rotation(t[3], t[4], t[5], t[6]);
+                PxVec3 scale(t[7], t[8], t[9]);
+
+                if (!position.isFinite() || !rotation.isUnit() ||
+                    !scale.isFinite() || scale.x <= 0 ||
+                    scale.y <= 0 || scale.z <= 0) {
+                    return false;
+                }
+
+                PxTriangleMeshGeometry shape(
+                    mesh.get(), PxMeshScale(scale),
+                    PxMeshGeometryFlag::eDOUBLE_SIDED);
+
+                PxRigidStatic* actor = PxCreateStatic(
+                    *physics, PxTransform(position, rotation), shape, *material);
+                if (!actor) return false;
+
+                interiorActors.push_back(actor);
+                scene->addActor(*actor);
+            }
+        }
+
+        std::printf("Loaded %zu building colliders from %u shared meshes\n",
+            interiorActors.size(), meshCount);
+        return true;
+    }
+
 public:
+    // The door system owns the returned actor and releases it before this scene.
+    physx::PxRigidDynamic* createDoorCollider(
+        const physx::PxTransform& closedPose, const physx::PxVec3& half)
+    {
+        using namespace physx;
+        if (!scene || !closedPose.isValid() || !PxBoxGeometry(half).isValid()) {
+            return nullptr;
+        }
+
+        auto* actor = physics->createRigidDynamic(closedPose);
+        if (!actor) return nullptr;
+
+        actor->setRigidBodyFlag(PxRigidBodyFlag::eKINEMATIC, true);
+        actor->setActorFlag(PxActorFlag::eDISABLE_GRAVITY, true);
+        if (!PxRigidActorExt::createExclusiveShape(*actor, PxBoxGeometry(half), *material)) {
+            actor->release();
+            return nullptr;
+        }
+        scene->addActor(*actor);
+        return actor;
+    }
+
+    bool doorPoseClear(const physx::PxTransform& pose, const physx::PxVec3& half) const
+    {
+        using namespace physx;
+        const auto* capsule = static_cast<const PxCapsuleController*>(controller);
+        const auto centre = capsule->getPosition();
+
+        // A standalone PhysX capsule points along X. Rotate it upright.
+        const PxTransform playerPose(
+            PxVec3(static_cast<float>(centre.x), static_cast<float>(centre.y),
+                static_cast<float>(centre.z)),
+            PxQuat(PxHalfPi, PxVec3(0, 0, 1))
+        );
+        return !PxGeometryQuery::overlap(PxBoxGeometry(half), pose,
+            PxCapsuleGeometry(capsule->getRadius(), capsule->getHeight() * 0.5f),
+            playerPose);
+    }
+
+    void moveDoorCollider(physx::PxRigidDynamic& actor, const physx::PxTransform& pose)
+    {
+        actor.setGlobalPose(pose);
+        controller->invalidateCache();
+    }
+
     PlayerPhysics() = default;
     PlayerPhysics(const PlayerPhysics&) = delete;
     PlayerPhysics& operator=(const PlayerPhysics&) = delete;
 
-    bool start(const char* terrainPath)
+    bool start(const char* terrainPath, const char* collidersPath,
+        const char* interiorsPath)
     {
         using namespace physx;
 
@@ -102,8 +379,12 @@ public:
         if (!ground) return false;
         scene->addActor(*ground);
 
+        if (!loadBoxColliders(collidersPath)) return false;
+
         manager = PxCreateControllerManager(*scene);
         if (!manager) return false;
+
+        if (!loadInteriorColliders(interiorsPath)) return false;
 
         PxCapsuleControllerDesc capsule;
         capsule.radius = 0.28f;
@@ -158,7 +439,18 @@ public:
     {
         if (manager) manager->release();
         if (ground) ground->release();
+
+        if (triangleActor) triangleActor->release();
+
         if (material) material->release();
+        for (auto* actor : boxActors) {
+            actor->release();
+        }
+
+        for (auto* actor : interiorActors) {
+            actor->release();
+        }
+
         if (scene) scene->release();
         if (dispatcher) dispatcher->release();
         if (extensionsReady) PxCloseExtensions();
